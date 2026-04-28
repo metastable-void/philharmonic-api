@@ -8,6 +8,7 @@ use std::{
 use async_trait::async_trait;
 use philharmonic_api::{
     ApiStore, PhilharmonicApiBuilder, RequestScope, RequestScopeResolver, ResolverError,
+    StubExecutor, StubLowerer,
 };
 use philharmonic_policy::ApiVerifyingKeyRegistry;
 use philharmonic_store::{
@@ -274,6 +275,8 @@ pub fn builder(
         .request_scope_resolver(resolver)
         .store(store)
         .api_verifying_key_registry(registry)
+        .step_executor(Arc::new(StubExecutor))
+        .config_lowerer(Arc::new(StubLowerer))
 }
 
 pub fn basic_builder() -> PhilharmonicApiBuilder {

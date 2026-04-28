@@ -1,10 +1,11 @@
 //! Route table for the public API.
 //!
-//! Sub-phase A exposes only meta smoke-test endpoints. Workflow,
-//! endpoint-config, identity, token-minting, audit, rate-limit, tenant,
+//! Sub-phase D exposes meta smoke-test endpoints and workflow management.
+//! Endpoint-config, identity, token-minting, audit, rate-limit, tenant,
 //! and operator routes land in later Phase 8 sub-phases.
 
 pub mod meta;
+pub mod workflows;
 
 use axum::{
     Router,
@@ -19,11 +20,12 @@ use crate::{
     error::{ErrorCode, envelope_response},
 };
 
-/// Build the sub-phase A route table.
+/// Build the sub-phase D route table.
 pub fn router() -> Router {
     Router::new()
         .route("/v1/_meta/version", get(meta::version))
         .route("/v1/_meta/health", get(meta::health))
+        .merge(workflows::router())
         .fallback(not_found)
 }
 

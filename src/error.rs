@@ -51,6 +51,8 @@ pub enum ErrorCode {
     Unauthenticated,
     /// The authenticated caller is not allowed to perform the request.
     Forbidden,
+    /// The request body, path, or query parameters were invalid.
+    InvalidRequest,
 }
 
 /// API error variants used by sub-phase A middleware and handlers.
@@ -71,6 +73,12 @@ pub enum ApiError {
     /// The authenticated caller is not authorized for the request.
     #[error("forbidden")]
     Forbidden,
+    /// The requested resource does not exist.
+    #[error("{0}")]
+    NotFound(String),
+    /// The request is syntactically valid HTTP but invalid for this API.
+    #[error("{0}")]
+    InvalidRequest(String),
 }
 
 impl ApiError {
@@ -84,6 +92,8 @@ impl ApiError {
             Self::NotImplemented => ErrorCode::NotImplemented,
             Self::Unauthenticated => ErrorCode::Unauthenticated,
             Self::Forbidden => ErrorCode::Forbidden,
+            Self::NotFound(_) => ErrorCode::NotFound,
+            Self::InvalidRequest(_) => ErrorCode::InvalidRequest,
         }
     }
 
@@ -97,6 +107,8 @@ impl ApiError {
             Self::NotImplemented => StatusCode::NOT_IMPLEMENTED,
             Self::Unauthenticated => StatusCode::UNAUTHORIZED,
             Self::Forbidden => StatusCode::FORBIDDEN,
+            Self::NotFound(_) => StatusCode::NOT_FOUND,
+            Self::InvalidRequest(_) => StatusCode::BAD_REQUEST,
         }
     }
 
@@ -182,6 +194,16 @@ mod tests {
                 ApiError::Forbidden,
                 ErrorCode::Forbidden,
                 StatusCode::FORBIDDEN,
+            ),
+            (
+                ApiError::NotFound("missing".to_string()),
+                ErrorCode::NotFound,
+                StatusCode::NOT_FOUND,
+            ),
+            (
+                ApiError::InvalidRequest("bad request".to_string()),
+                ErrorCode::InvalidRequest,
+                StatusCode::BAD_REQUEST,
             ),
         ];
 

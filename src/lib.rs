@@ -17,11 +17,9 @@
 //!
 //! # Builder
 //!
-//! Sub-phase B has three required dependencies: the request-scope resolver,
-//! substrate store, and API verifying-key registry. Sub-phase C requires that
-//! the store also expose content blobs so role permission documents can be
-//! evaluated. Later sub-phases add workflow execution, endpoint handlers, rate
-//! limiting, and audit dependencies.
+//! Sub-phase D requires a request-scope resolver, substrate store, API
+//! verifying-key registry, workflow step executor, and config lowerer. The API
+//! builder constructs the workflow engine internally from those dependencies.
 //!
 //! ```no_run
 //! use std::sync::Arc;
@@ -29,6 +27,7 @@
 //! use async_trait::async_trait;
 //! use philharmonic_api::{
 //!     PhilharmonicApiBuilder, RequestScope, RequestScopeResolver, ResolverError,
+//!     StubExecutor, StubLowerer,
 //! };
 //! use philharmonic_policy::ApiVerifyingKeyRegistry;
 //! use philharmonic_api::ApiStore;
@@ -50,6 +49,8 @@
 //!     .request_scope_resolver(Arc::new(OperatorOnly))
 //!     # .store(todo_store())
 //!     .api_verifying_key_registry(ApiVerifyingKeyRegistry::new())
+//!     .step_executor(Arc::new(StubExecutor))
+//!     .config_lowerer(Arc::new(StubLowerer))
 //!     .build()?;
 //! let router = api.into_router();
 //! # Ok::<(), philharmonic_api::BuilderError>(())
@@ -57,16 +58,16 @@
 //! # fn todo_store() -> Arc<dyn ApiStore> { todo!() }
 //! ```
 //!
-//! # Current scope (sub-phase C)
+//! # Current scope (sub-phase D)
 //!
 //! The crate includes the axum router, scope-resolution middleware,
 //! request context type, correlation ID propagation, structured logging,
 //! error envelope, real authentication (long-lived `pht_` token lookup
 //! and ephemeral COSE_Sign1 verification via `philharmonic-policy`),
-//! real authorization against route-declared permission atoms, and smoke-test
-//! meta endpoints. Real workflow, endpoint-config, principal, role,
-//! token-minting, audit, rate-limit, and operator handlers land in later
-//! Phase 8 sub-phases.
+//! real authorization against route-declared permission atoms, smoke-test
+//! meta endpoints, and workflow template/instance management endpoints.
+//! Endpoint-config, principal, role, token-minting, audit, rate-limit, and
+//! operator handlers land in later Phase 8 sub-phases.
 //!
 //! See `docs/design/10-api-layer.md` and `ROADMAP.md` Phase 8 in the
 //! Philharmonic workspace for the full endpoint plan.
@@ -75,34 +76,47 @@ mod auth;
 mod context;
 mod error;
 mod middleware;
+mod pagination;
 mod routes;
 mod scope;
 mod store;
+mod workflow;
 
 pub use auth::AuthContext;
 pub use context::RequestContext;
 pub use error::{ApiError, ErrorBody, ErrorCode, ErrorEnvelope};
 pub use middleware::authz::{AuthzState, RequestInstanceScope, RequiredPermission, authorize};
+pub use pagination::{PaginatedResponse, PaginationParams};
 pub use scope::{EntityId, RequestScope, RequestScopeResolver, ResolverError, Tenant};
 pub use store::ApiStore;
+pub use workflow::{StubExecutor, StubLowerer};
 
 use std::sync::Arc;
 
 use axum::Router;
 use philharmonic_policy::ApiVerifyingKeyRegistry;
+use philharmonic_workflow::{ConfigLowerer, StepExecutor, WorkflowEngine};
+
+use crate::{
+    routes::workflows::WorkflowState,
+    store::ApiStoreHandle,
+    workflow::{SharedConfigLowerer, SharedStepExecutor},
+};
 
 /// Builder for [`PhilharmonicApi`].
 ///
 /// The builder constructs the axum router and middleware chain once all
 /// required trait implementations have been plugged in. Sub-phase B
-/// requires a [`RequestScopeResolver`], [`ApiStore`], and API verifying-key
-/// registry; later Phase 8 sub-phases add executor, handler, and rate-limit
-/// or audit dependencies.
+/// requires a [`RequestScopeResolver`], [`ApiStore`], API verifying-key
+/// registry, workflow [`StepExecutor`], and workflow [`ConfigLowerer`]. Later
+/// Phase 8 sub-phases add rate-limit and audit dependencies.
 #[derive(Default)]
 pub struct PhilharmonicApiBuilder {
     request_scope_resolver: Option<Arc<dyn RequestScopeResolver>>,
     store: Option<Arc<dyn ApiStore>>,
     api_verifying_key_registry: Option<ApiVerifyingKeyRegistry>,
+    step_executor: Option<Arc<dyn StepExecutor>>,
+    config_lowerer: Option<Arc<dyn ConfigLowerer>>,
     extra_routes: Option<Router>,
 }
 
@@ -130,6 +144,18 @@ impl PhilharmonicApiBuilder {
         self
     }
 
+    /// Plug in the workflow step executor used by instance execution.
+    pub fn step_executor(mut self, executor: Arc<dyn StepExecutor>) -> Self {
+        self.step_executor = Some(executor);
+        self
+    }
+
+    /// Plug in the workflow abstract-config lowerer.
+    pub fn config_lowerer(mut self, lowerer: Arc<dyn ConfigLowerer>) -> Self {
+        self.config_lowerer = Some(lowerer);
+        self
+    }
+
     /// Merge additional routes before the middleware chain is applied.
     ///
     /// Sub-phase A uses this hook for smoke tests. Later sub-phases can
@@ -151,8 +177,23 @@ impl PhilharmonicApiBuilder {
             .ok_or(BuilderError::MissingDependency(
                 "api_verifying_key_registry",
             ))?;
+        let executor = self
+            .step_executor
+            .ok_or(BuilderError::MissingDependency("step_executor"))?;
+        let lowerer = self
+            .config_lowerer
+            .ok_or(BuilderError::MissingDependency("config_lowerer"))?;
         let auth_state = middleware::auth::AuthState::new(Arc::clone(&store), Arc::new(registry));
-        let authz_state = middleware::authz::AuthzState::new(store);
+        let authz_state = middleware::authz::AuthzState::new(Arc::clone(&store));
+        let workflow_store = ApiStoreHandle::new(Arc::clone(&store));
+        let workflow_state = WorkflowState::new(
+            Arc::clone(&store),
+            Arc::new(WorkflowEngine::new(
+                workflow_store,
+                SharedStepExecutor::new(executor),
+                SharedConfigLowerer::new(lowerer),
+            )),
+        );
 
         let mut router = routes::router();
         if let Some(extra_routes) = self.extra_routes {
@@ -162,6 +203,7 @@ impl PhilharmonicApiBuilder {
         let router = router
             .layer(axum::middleware::from_fn(middleware::authz::authorize))
             .layer(axum::Extension(authz_state))
+            .layer(axum::Extension(workflow_state))
             .layer(axum::middleware::from_fn(middleware::auth::authenticate))
             .layer(axum::Extension(auth_state))
             .layer(axum::middleware::from_fn_with_state(
@@ -219,5 +261,158 @@ mod tests {
             result,
             Err(BuilderError::MissingDependency("request_scope_resolver"))
         ));
+    }
+
+    #[test]
+    fn builder_reports_missing_executor() {
+        let result = PhilharmonicApiBuilder::new()
+            .request_scope_resolver(Arc::new(NoopResolver))
+            .store(Arc::new(NoopStore))
+            .api_verifying_key_registry(ApiVerifyingKeyRegistry::new())
+            .config_lowerer(Arc::new(StubLowerer))
+            .build();
+        assert!(matches!(
+            result,
+            Err(BuilderError::MissingDependency("step_executor"))
+        ));
+    }
+
+    #[test]
+    fn builder_reports_missing_lowerer() {
+        let result = PhilharmonicApiBuilder::new()
+            .request_scope_resolver(Arc::new(NoopResolver))
+            .store(Arc::new(NoopStore))
+            .api_verifying_key_registry(ApiVerifyingKeyRegistry::new())
+            .step_executor(Arc::new(StubExecutor))
+            .build();
+        assert!(matches!(
+            result,
+            Err(BuilderError::MissingDependency("config_lowerer"))
+        ));
+    }
+
+    struct NoopResolver;
+
+    #[async_trait::async_trait]
+    impl RequestScopeResolver for NoopResolver {
+        async fn resolve(
+            &self,
+            _parts: &http::request::Parts,
+        ) -> Result<RequestScope, ResolverError> {
+            Ok(RequestScope::Operator)
+        }
+    }
+
+    struct NoopStore;
+
+    #[async_trait::async_trait]
+    impl philharmonic_store::IdentityStore for NoopStore {
+        async fn mint(
+            &self,
+        ) -> Result<philharmonic_types::Identity, philharmonic_store::StoreError> {
+            Err(philharmonic_store::StoreError::Backend(
+                philharmonic_store::BackendError::fatal("noop"),
+            ))
+        }
+
+        async fn resolve_public(
+            &self,
+            _public: philharmonic_types::Uuid,
+        ) -> Result<Option<philharmonic_types::Identity>, philharmonic_store::StoreError> {
+            Ok(None)
+        }
+
+        async fn resolve_internal(
+            &self,
+            _internal: philharmonic_types::Uuid,
+        ) -> Result<Option<philharmonic_types::Identity>, philharmonic_store::StoreError> {
+            Ok(None)
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl philharmonic_store::EntityStore for NoopStore {
+        async fn create_entity(
+            &self,
+            _identity: philharmonic_types::Identity,
+            _kind: philharmonic_types::Uuid,
+        ) -> Result<(), philharmonic_store::StoreError> {
+            Ok(())
+        }
+
+        async fn get_entity(
+            &self,
+            _entity_id: philharmonic_types::Uuid,
+        ) -> Result<Option<philharmonic_store::EntityRow>, philharmonic_store::StoreError> {
+            Ok(None)
+        }
+
+        async fn append_revision(
+            &self,
+            _entity_id: philharmonic_types::Uuid,
+            _revision_seq: u64,
+            _input: &philharmonic_store::RevisionInput,
+        ) -> Result<(), philharmonic_store::StoreError> {
+            Ok(())
+        }
+
+        async fn get_revision(
+            &self,
+            _entity_id: philharmonic_types::Uuid,
+            _revision_seq: u64,
+        ) -> Result<Option<philharmonic_store::RevisionRow>, philharmonic_store::StoreError>
+        {
+            Ok(None)
+        }
+
+        async fn get_latest_revision(
+            &self,
+            _entity_id: philharmonic_types::Uuid,
+        ) -> Result<Option<philharmonic_store::RevisionRow>, philharmonic_store::StoreError>
+        {
+            Ok(None)
+        }
+
+        async fn list_revisions_referencing(
+            &self,
+            _target_entity_id: philharmonic_types::Uuid,
+            _attribute_name: &str,
+        ) -> Result<Vec<philharmonic_store::RevisionRef>, philharmonic_store::StoreError> {
+            Ok(Vec::new())
+        }
+
+        async fn find_by_scalar(
+            &self,
+            _kind: philharmonic_types::Uuid,
+            _attribute_name: &str,
+            _value: &philharmonic_types::ScalarValue,
+        ) -> Result<Vec<philharmonic_store::EntityRow>, philharmonic_store::StoreError> {
+            Ok(Vec::new())
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl philharmonic_store::ContentStore for NoopStore {
+        async fn put(
+            &self,
+            _value: &philharmonic_types::ContentValue,
+        ) -> Result<(), philharmonic_store::StoreError> {
+            Ok(())
+        }
+
+        async fn get(
+            &self,
+            _hash: philharmonic_types::Sha256,
+        ) -> Result<Option<philharmonic_types::ContentValue>, philharmonic_store::StoreError>
+        {
+            Ok(None)
+        }
+
+        async fn exists(
+            &self,
+            _hash: philharmonic_types::Sha256,
+        ) -> Result<bool, philharmonic_store::StoreError> {
+            Ok(false)
+        }
     }
 }

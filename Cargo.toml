@@ -16,6 +16,7 @@ http = "1.4.0"
 philharmonic-policy = "0.2"
 philharmonic-store = "0.1"
 philharmonic-types = "0.3"
+philharmonic-workflow = "0.1"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 thiserror = "2.0.18"
