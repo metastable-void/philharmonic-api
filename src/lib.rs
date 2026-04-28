@@ -17,9 +17,10 @@
 //!
 //! # Builder
 //!
-//! Sub-phase A has one required dependency: the request-scope resolver.
-//! Later sub-phases add authentication, authorization, substrate access,
-//! workflow execution, signing-key lookup, and endpoint handlers.
+//! Sub-phase B has three required dependencies: the request-scope resolver,
+//! substrate store, and API verifying-key registry. Later sub-phases add
+//! authorization, workflow execution, endpoint handlers, rate limiting, and
+//! audit dependencies.
 //!
 //! ```no_run
 //! use std::sync::Arc;
@@ -28,6 +29,8 @@
 //! use philharmonic_api::{
 //!     PhilharmonicApiBuilder, RequestScope, RequestScopeResolver, ResolverError,
 //! };
+//! use philharmonic_policy::ApiVerifyingKeyRegistry;
+//! use philharmonic_store::StoreExt;
 //!
 //! struct OperatorOnly;
 //!
@@ -41,11 +44,16 @@
 //!     }
 //! }
 //!
+//! # fn main() -> Result<(), philharmonic_api::BuilderError> {
 //! let api = PhilharmonicApiBuilder::new()
 //!     .request_scope_resolver(Arc::new(OperatorOnly))
+//!     # .store(todo_store())
+//!     .api_verifying_key_registry(ApiVerifyingKeyRegistry::new())
 //!     .build()?;
 //! let router = api.into_router();
 //! # Ok::<(), philharmonic_api::BuilderError>(())
+//! # }
+//! # fn todo_store() -> Arc<dyn StoreExt> { todo!() }
 //! ```
 //!
 //! # Sub-phase A scope
@@ -53,10 +61,9 @@
 //! This skeleton includes the axum router, scope-resolution middleware,
 //! request context type, correlation ID propagation, structured logging,
 //! error envelope, and smoke-test meta endpoints. Authentication and
-//! authorization are explicitly placeholder layers: sub-phase B replaces
-//! authentication and sub-phase C replaces authorization. Real workflow,
-//! endpoint-config, principal, role, token-minting, audit, rate-limit, and
-//! operator handlers land in later Phase 8 sub-phases.
+//! authorization is still a placeholder layer: sub-phase C replaces it.
+//! Real workflow, endpoint-config, principal, role, token-minting, audit,
+//! rate-limit, and operator handlers land in later Phase 8 sub-phases.
 //!
 //! See `docs/design/10-api-layer.md` and `ROADMAP.md` Phase 8 in the
 //! Philharmonic workspace for the full endpoint plan.
@@ -76,18 +83,21 @@ pub use scope::{EntityId, RequestScope, RequestScopeResolver, ResolverError, Ten
 use std::sync::Arc;
 
 use axum::Router;
-use tower::ServiceBuilder;
+use philharmonic_policy::ApiVerifyingKeyRegistry;
+use philharmonic_store::StoreExt;
 
 /// Builder for [`PhilharmonicApi`].
 ///
 /// The builder constructs the axum router and middleware chain once all
-/// required trait implementations have been plugged in. Sub-phase A only
-/// requires a [`RequestScopeResolver`]; later Phase 8 sub-phases add the
-/// store, executor client, lowerer, authentication dependencies, signing
-/// keys, and rate-limit/audit dependencies.
+/// required trait implementations have been plugged in. Sub-phase B
+/// requires a [`RequestScopeResolver`], store, and API verifying-key
+/// registry; later Phase 8 sub-phases add executor, handler, and
+/// rate-limit/audit dependencies.
 #[derive(Default)]
 pub struct PhilharmonicApiBuilder {
     request_scope_resolver: Option<Arc<dyn RequestScopeResolver>>,
+    store: Option<Arc<dyn StoreExt>>,
+    api_verifying_key_registry: Option<ApiVerifyingKeyRegistry>,
     extra_routes: Option<Router>,
 }
 
@@ -100,6 +110,18 @@ impl PhilharmonicApiBuilder {
     /// Plug in the deployment-supplied request-scope resolver.
     pub fn request_scope_resolver(mut self, resolver: Arc<dyn RequestScopeResolver>) -> Self {
         self.request_scope_resolver = Some(resolver);
+        self
+    }
+
+    /// Plug in the storage substrate used by authentication and handlers.
+    pub fn store(mut self, store: Arc<dyn StoreExt>) -> Self {
+        self.store = Some(store);
+        self
+    }
+
+    /// Plug in API signing-key verifiers for ephemeral-token authentication.
+    pub fn api_verifying_key_registry(mut self, registry: ApiVerifyingKeyRegistry) -> Self {
+        self.api_verifying_key_registry = Some(registry);
         self
     }
 
@@ -118,31 +140,35 @@ impl PhilharmonicApiBuilder {
         let resolver = self
             .request_scope_resolver
             .ok_or(BuilderError::MissingDependency("request_scope_resolver"))?;
+        let store = self.store.ok_or(BuilderError::MissingDependency("store"))?;
+        let registry = self
+            .api_verifying_key_registry
+            .ok_or(BuilderError::MissingDependency(
+                "api_verifying_key_registry",
+            ))?;
+        let auth_state = middleware::auth::AuthState::new(store, Arc::new(registry));
 
         let mut router = routes::router();
         if let Some(extra_routes) = self.extra_routes {
             router = router.merge(extra_routes);
         }
 
-        let router = router.layer(
-            ServiceBuilder::new()
-                .layer(axum::middleware::from_fn(
-                    middleware::correlation_id::correlation_id,
-                ))
-                .layer(axum::middleware::from_fn(
-                    middleware::request_logging::request_logging,
-                ))
-                .layer(axum::middleware::from_fn_with_state(
-                    resolver,
-                    middleware::scope::resolve_scope,
-                ))
-                .layer(axum::middleware::from_fn(
-                    middleware::auth_placeholder::auth_placeholder,
-                ))
-                .layer(axum::middleware::from_fn(
-                    middleware::authz_placeholder::authz_placeholder,
-                )),
-        );
+        let router = router
+            .layer(axum::middleware::from_fn(
+                middleware::authz_placeholder::authz_placeholder,
+            ))
+            .layer(axum::middleware::from_fn(middleware::auth::authenticate))
+            .layer(axum::Extension(auth_state))
+            .layer(axum::middleware::from_fn_with_state(
+                resolver,
+                middleware::scope::resolve_scope,
+            ))
+            .layer(axum::middleware::from_fn(
+                middleware::request_logging::request_logging,
+            ))
+            .layer(axum::middleware::from_fn(
+                middleware::correlation_id::correlation_id,
+            ));
 
         Ok(PhilharmonicApi { router })
     }

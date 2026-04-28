@@ -2,8 +2,10 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use axum::http::{Request, StatusCode};
-use philharmonic_api::{PhilharmonicApiBuilder, RequestScope, RequestScopeResolver, ResolverError};
+use philharmonic_api::{RequestScope, RequestScopeResolver, ResolverError};
 use tower::ServiceExt;
+
+mod common;
 
 struct OperatorResolver;
 
@@ -15,11 +17,14 @@ impl RequestScopeResolver for OperatorResolver {
 }
 
 fn router() -> axum::Router {
-    PhilharmonicApiBuilder::new()
-        .request_scope_resolver(Arc::new(OperatorResolver))
-        .build()
-        .unwrap()
-        .into_router()
+    common::builder(
+        Arc::new(OperatorResolver),
+        common::MockStore::new(),
+        philharmonic_policy::ApiVerifyingKeyRegistry::new(),
+    )
+    .build()
+    .unwrap()
+    .into_router()
 }
 
 #[tokio::test]

@@ -1,9 +1,9 @@
 //! Middleware chain for the public API.
 //!
-//! Sub-phase A wires correlation IDs, request logging, deployment-supplied
-//! scope resolution, and placeholder authentication/authorization layers.
+//! Sub-phase B wires real authentication after deployment-supplied scope
+//! resolution. Authorization remains a placeholder until sub-phase C.
 
-pub mod auth_placeholder;
+pub mod auth;
 pub mod authz_placeholder;
 pub mod correlation_id;
 pub mod request_logging;

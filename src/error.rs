@@ -28,7 +28,6 @@ pub struct ErrorBody {
     /// Human-readable message.
     pub message: String,
     /// Optional code-specific details.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub details: Option<serde_json::Value>,
     /// Request correlation ID.
     pub correlation_id: uuid::Uuid,
@@ -48,6 +47,8 @@ pub enum ErrorCode {
     MethodNotAllowed,
     /// Stub endpoint placeholder.
     NotImplemented,
+    /// Authentication failed or was not provided.
+    Unauthenticated,
 }
 
 /// API error variants used by sub-phase A middleware and handlers.
@@ -62,6 +63,9 @@ pub enum ApiError {
     /// Endpoint exists as a stub but has no implementation yet.
     #[error("not implemented")]
     NotImplemented,
+    /// Authentication failed without exposing the verifier decision tree.
+    #[error("invalid token")]
+    Unauthenticated,
 }
 
 impl ApiError {
@@ -73,6 +77,7 @@ impl ApiError {
                 ErrorCode::InternalError
             }
             Self::NotImplemented => ErrorCode::NotImplemented,
+            Self::Unauthenticated => ErrorCode::Unauthenticated,
         }
     }
 
@@ -84,6 +89,7 @@ impl ApiError {
                 StatusCode::INTERNAL_SERVER_ERROR
             }
             Self::NotImplemented => StatusCode::NOT_IMPLEMENTED,
+            Self::Unauthenticated => StatusCode::UNAUTHORIZED,
         }
     }
 
@@ -159,6 +165,11 @@ mod tests {
                 ApiError::NotImplemented,
                 ErrorCode::NotImplemented,
                 StatusCode::NOT_IMPLEMENTED,
+            ),
+            (
+                ApiError::Unauthenticated,
+                ErrorCode::Unauthenticated,
+                StatusCode::UNAUTHORIZED,
             ),
         ];
 

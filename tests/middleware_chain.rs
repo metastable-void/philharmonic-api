@@ -9,12 +9,13 @@ use axum::{
     routing::get,
 };
 use philharmonic_api::{
-    ErrorCode, ErrorEnvelope, PhilharmonicApiBuilder, RequestContext, RequestScope,
-    RequestScopeResolver, ResolverError,
+    ErrorCode, ErrorEnvelope, RequestContext, RequestScope, RequestScopeResolver, ResolverError,
 };
 use philharmonic_policy::Tenant;
-use philharmonic_types::{EntityId, Identity, Uuid};
+use philharmonic_types::EntityId;
 use tower::ServiceExt;
+
+mod common;
 
 struct PathResolver;
 
@@ -22,35 +23,33 @@ struct PathResolver;
 impl RequestScopeResolver for PathResolver {
     async fn resolve(&self, parts: &http::request::Parts) -> Result<RequestScope, ResolverError> {
         match parts.uri.path() {
-            "/tenant" => Ok(RequestScope::Tenant(tenant_id())),
-            "/operator" => Ok(RequestScope::Operator),
-            "/unscoped" => Err(ResolverError::Unscoped),
+            "/v1/_meta/tenant" => Ok(RequestScope::Tenant(tenant_id())),
+            "/v1/_meta/operator" => Ok(RequestScope::Operator),
+            "/v1/_meta/unscoped" => Err(ResolverError::Unscoped),
             _ => Ok(RequestScope::Operator),
         }
     }
 }
 
 fn tenant_id() -> EntityId<Tenant> {
-    Identity {
-        internal: Uuid::now_v7(),
-        public: Uuid::new_v4(),
-    }
-    .typed()
-    .unwrap()
+    common::new_typed_id::<Tenant>()
 }
 
 fn router() -> Router {
     let extra_routes = Router::new()
-        .route("/tenant", get(scope_kind))
-        .route("/operator", get(scope_kind))
-        .route("/unscoped", get(scope_kind));
+        .route("/v1/_meta/tenant", get(scope_kind))
+        .route("/v1/_meta/operator", get(scope_kind))
+        .route("/v1/_meta/unscoped", get(scope_kind));
 
-    PhilharmonicApiBuilder::new()
-        .request_scope_resolver(Arc::new(PathResolver))
-        .extra_routes(extra_routes)
-        .build()
-        .unwrap()
-        .into_router()
+    common::builder(
+        Arc::new(PathResolver),
+        common::MockStore::new(),
+        philharmonic_policy::ApiVerifyingKeyRegistry::new(),
+    )
+    .extra_routes(extra_routes)
+    .build()
+    .unwrap()
+    .into_router()
 }
 
 async fn scope_kind(Extension(context): Extension<RequestContext>) -> impl IntoResponse {
@@ -70,7 +69,7 @@ async fn middleware_attaches_tenant_scope() {
     let response = router()
         .oneshot(
             Request::builder()
-                .uri("/tenant")
+                .uri("/v1/_meta/tenant")
                 .body(axum::body::Body::empty())
                 .unwrap(),
         )
@@ -92,7 +91,7 @@ async fn middleware_attaches_operator_scope() {
     let response = router()
         .oneshot(
             Request::builder()
-                .uri("/operator")
+                .uri("/v1/_meta/operator")
                 .body(axum::body::Body::empty())
                 .unwrap(),
         )
@@ -114,7 +113,7 @@ async fn middleware_returns_structured_unscoped_error() {
     let response = router()
         .oneshot(
             Request::builder()
-                .uri("/unscoped")
+                .uri("/v1/_meta/unscoped")
                 .body(axum::body::Body::empty())
                 .unwrap(),
         )

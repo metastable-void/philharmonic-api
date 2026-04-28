@@ -3,10 +3,11 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use axum::http::{Request, StatusCode};
 use philharmonic_api::{
-    ErrorCode, ErrorEnvelope, PhilharmonicApiBuilder, RequestScope, RequestScopeResolver,
-    ResolverError,
+    ErrorCode, ErrorEnvelope, RequestScope, RequestScopeResolver, ResolverError,
 };
 use tower::ServiceExt;
+
+mod common;
 
 struct OperatorResolver;
 
@@ -18,11 +19,14 @@ impl RequestScopeResolver for OperatorResolver {
 }
 
 fn router() -> axum::Router {
-    PhilharmonicApiBuilder::new()
-        .request_scope_resolver(Arc::new(OperatorResolver))
-        .build()
-        .unwrap()
-        .into_router()
+    common::builder(
+        Arc::new(OperatorResolver),
+        common::MockStore::new(),
+        philharmonic_policy::ApiVerifyingKeyRegistry::new(),
+    )
+    .build()
+    .unwrap()
+    .into_router()
 }
 
 #[tokio::test]
@@ -51,7 +55,7 @@ async fn bogus_path_returns_structured_not_found() {
     let response = router()
         .oneshot(
             Request::builder()
-                .uri("/bogus")
+                .uri("/v1/_meta/bogus")
                 .body(axum::body::Body::empty())
                 .unwrap(),
         )

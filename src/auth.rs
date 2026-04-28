@@ -1,10 +1,9 @@
 //! Authentication context types.
 //!
-//! Sub-phase A defines the enum used by downstream handlers. The
-//! authentication middleware is a documented no-op until sub-phase B adds
-//! long-lived `pht_` token lookup and ephemeral COSE_Sign1 verification.
+//! Sub-phase B populates this enum from long-lived `pht_` token lookup and
+//! ephemeral COSE_Sign1 verification.
 
-use philharmonic_policy::{MintingAuthority, Principal, Tenant};
+use philharmonic_policy::{EphemeralApiTokenClaims, MintingAuthority, Principal, Tenant};
 use philharmonic_types::{EntityId, Uuid};
 
 /// Authenticated caller context.
@@ -36,4 +35,41 @@ pub enum AuthContext {
         /// through the API crate's dependency surface.
         instance_scope: Option<Uuid>,
     },
+}
+
+impl AuthContext {
+    /// Return the tenant associated with this authenticated caller.
+    pub fn tenant_id(&self) -> EntityId<Tenant> {
+        match self {
+            Self::Principal { tenant_id, .. } | Self::Ephemeral { tenant_id, .. } => *tenant_id,
+        }
+    }
+
+    /// Whether this context came from an ephemeral API token.
+    pub fn is_ephemeral(&self) -> bool {
+        matches!(self, Self::Ephemeral { .. })
+    }
+
+    /// Whether this context came from a long-lived API token.
+    pub fn is_principal(&self) -> bool {
+        matches!(self, Self::Principal { .. })
+    }
+
+    /// Build an ephemeral auth context from verified token claims and the
+    /// substrate identities that were checked by the middleware.
+    pub fn from_ephemeral_claims(
+        claims: EphemeralApiTokenClaims,
+        tenant_id: EntityId<Tenant>,
+        authority_id: EntityId<MintingAuthority>,
+    ) -> Result<Self, serde_json::Error> {
+        let injected_claims = serde_json::from_slice(claims.claims.as_bytes())?;
+        Ok(Self::Ephemeral {
+            subject: claims.sub,
+            tenant_id,
+            authority_id,
+            permissions: claims.permissions,
+            injected_claims,
+            instance_scope: claims.instance,
+        })
+    }
 }
