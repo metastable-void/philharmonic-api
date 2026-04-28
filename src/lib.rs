@@ -58,16 +58,17 @@
 //! # fn todo_store() -> Arc<dyn ApiStore> { todo!() }
 //! ```
 //!
-//! # Current scope (sub-phase D)
+//! # Current scope (sub-phase E)
 //!
 //! The crate includes the axum router, scope-resolution middleware,
 //! request context type, correlation ID propagation, structured logging,
 //! error envelope, real authentication (long-lived `pht_` token lookup
 //! and ephemeral COSE_Sign1 verification via `philharmonic-policy`),
 //! real authorization against route-declared permission atoms, smoke-test
-//! meta endpoints, and workflow template/instance management endpoints.
-//! Endpoint-config, principal, role, token-minting, audit, rate-limit, and
-//! operator handlers land in later Phase 8 sub-phases.
+//! meta endpoints, workflow template/instance management endpoints, and
+//! endpoint-config management endpoints with SCK encryption at rest.
+//! Principal, role, token-minting, audit, rate-limit, and operator handlers
+//! land in later Phase 8 sub-phases.
 //!
 //! See `docs/design/10-api-layer.md` and `ROADMAP.md` Phase 8 in the
 //! Philharmonic workspace for the full endpoint plan.
@@ -94,11 +95,11 @@ pub use workflow::{StubExecutor, StubLowerer};
 use std::sync::Arc;
 
 use axum::Router;
-use philharmonic_policy::ApiVerifyingKeyRegistry;
+use philharmonic_policy::{ApiVerifyingKeyRegistry, Sck};
 use philharmonic_workflow::{ConfigLowerer, StepExecutor, WorkflowEngine};
 
 use crate::{
-    routes::workflows::WorkflowState,
+    routes::{endpoints::EndpointState, workflows::WorkflowState},
     store::ApiStoreHandle,
     workflow::{SharedConfigLowerer, SharedStepExecutor},
 };
@@ -117,6 +118,8 @@ pub struct PhilharmonicApiBuilder {
     api_verifying_key_registry: Option<ApiVerifyingKeyRegistry>,
     step_executor: Option<Arc<dyn StepExecutor>>,
     config_lowerer: Option<Arc<dyn ConfigLowerer>>,
+    sck: Option<Arc<Sck>>,
+    key_version: i64,
     extra_routes: Option<Router>,
 }
 
@@ -153,6 +156,18 @@ impl PhilharmonicApiBuilder {
     /// Plug in the workflow abstract-config lowerer.
     pub fn config_lowerer(mut self, lowerer: Arc<dyn ConfigLowerer>) -> Self {
         self.config_lowerer = Some(lowerer);
+        self
+    }
+
+    /// Plug in the substrate credential key used by endpoint-config routes.
+    pub fn sck(mut self, sck: Sck) -> Self {
+        self.sck = Some(Arc::new(sck));
+        self
+    }
+
+    /// Set the current SCK key version written by endpoint-config routes.
+    pub fn key_version(mut self, key_version: i64) -> Self {
+        self.key_version = key_version;
         self
     }
 
@@ -194,6 +209,11 @@ impl PhilharmonicApiBuilder {
                 SharedConfigLowerer::new(lowerer),
             )),
         );
+        let endpoint_state = EndpointState::new(
+            Arc::clone(&store),
+            self.sck.as_ref().map(Arc::clone),
+            self.key_version,
+        );
 
         let mut router = routes::router();
         if let Some(extra_routes) = self.extra_routes {
@@ -203,6 +223,7 @@ impl PhilharmonicApiBuilder {
         let router = router
             .layer(axum::middleware::from_fn(middleware::authz::authorize))
             .layer(axum::Extension(authz_state))
+            .layer(axum::Extension(endpoint_state))
             .layer(axum::Extension(workflow_state))
             .layer(axum::middleware::from_fn(middleware::auth::authenticate))
             .layer(axum::Extension(auth_state))

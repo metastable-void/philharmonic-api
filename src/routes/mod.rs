@@ -1,9 +1,10 @@
 //! Route table for the public API.
 //!
-//! Sub-phase D exposes meta smoke-test endpoints and workflow management.
-//! Endpoint-config, identity, token-minting, audit, rate-limit, tenant,
-//! and operator routes land in later Phase 8 sub-phases.
+//! Sub-phase E exposes meta smoke-test endpoints, workflow management, and
+//! endpoint-config management. Identity, token-minting, audit, rate-limit,
+//! tenant, and operator routes land in later Phase 8 sub-phases.
 
+pub mod endpoints;
 pub mod meta;
 pub mod workflows;
 
@@ -20,12 +21,13 @@ use crate::{
     error::{ErrorCode, envelope_response},
 };
 
-/// Build the sub-phase D route table.
+/// Build the sub-phase E route table.
 pub fn router() -> Router {
     Router::new()
         .route("/v1/_meta/version", get(meta::version))
         .route("/v1/_meta/health", get(meta::health))
         .merge(workflows::router())
+        .merge(endpoints::router())
         .fallback(not_found)
 }
 
