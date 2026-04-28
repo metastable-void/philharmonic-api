@@ -15,8 +15,8 @@ use axum::{
 };
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use philharmonic_policy::{
-    ApiTokenVerifyError, ApiVerifyingKeyRegistry, MintingAuthority, Principal, TOKEN_PREFIX,
-    Tenant, TenantStatus, parse_api_token, verify_ephemeral_api_token,
+    ApiTokenVerifyError, ApiVerifyingKeyRegistry, MAX_TOKEN_BYTES, MintingAuthority, Principal,
+    TOKEN_PREFIX, Tenant, TenantStatus, parse_api_token, verify_ephemeral_api_token,
 };
 use philharmonic_store::{
     EntityRefValue, EntityRow, EntityStoreExt, RevisionRow, StoreError, StoreExt,
@@ -154,11 +154,16 @@ async fn long_lived_principal_context(
     })
 }
 
+const MAX_BEARER_ENCODED_LEN: usize = MAX_TOKEN_BYTES * 4 / 3 + 4;
+
 async fn authenticate_ephemeral(
     store: &dyn StoreExt,
     registry: &ApiVerifyingKeyRegistry,
     token: &str,
 ) -> Result<AuthContext, AuthFailure> {
+    if token.len() > MAX_BEARER_ENCODED_LEN {
+        return Err(AuthFailure::MalformedBearer);
+    }
     let token_bytes = URL_SAFE_NO_PAD
         .decode(token)
         .map_err(|_| AuthFailure::MalformedBearer)?;

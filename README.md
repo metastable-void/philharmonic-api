@@ -5,10 +5,11 @@ Part of the Philharmonic workspace: https://github.com/metastable-void/philharmo
 `philharmonic-api` is the public HTTP API layer for Philharmonic. It
 exposes a builder that accepts deployment-supplied trait implementations
 such as `RequestScopeResolver` and returns a ready-to-serve `axum::Router`.
-The current 0.0.0 crate is a Phase 8 skeleton with scope resolution,
-correlation IDs, structured error envelopes, placeholder auth/authz
-middleware, and meta smoke endpoints; substantive v1 handlers land in
-later Phase 8 sub-phases.
+The current 0.0.0 crate implements scope resolution, correlation IDs,
+structured error envelopes, real authentication (long-lived `pht_`
+token lookup and ephemeral COSE_Sign1 verification), placeholder
+authorization, and meta smoke endpoints; substantive v1 handlers
+land in later Phase 8 sub-phases.
 
 ## Contributing
 

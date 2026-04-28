@@ -56,14 +56,16 @@
 //! # fn todo_store() -> Arc<dyn StoreExt> { todo!() }
 //! ```
 //!
-//! # Sub-phase A scope
+//! # Current scope (sub-phase B)
 //!
-//! This skeleton includes the axum router, scope-resolution middleware,
+//! The crate includes the axum router, scope-resolution middleware,
 //! request context type, correlation ID propagation, structured logging,
-//! error envelope, and smoke-test meta endpoints. Authentication and
-//! authorization is still a placeholder layer: sub-phase C replaces it.
-//! Real workflow, endpoint-config, principal, role, token-minting, audit,
-//! rate-limit, and operator handlers land in later Phase 8 sub-phases.
+//! error envelope, real authentication (long-lived `pht_` token lookup
+//! and ephemeral COSE_Sign1 verification via `philharmonic-policy`),
+//! and smoke-test meta endpoints. Authorization is still a placeholder
+//! layer; sub-phase C replaces it. Real workflow, endpoint-config,
+//! principal, role, token-minting, audit, rate-limit, and operator
+//! handlers land in later Phase 8 sub-phases.
 //!
 //! See `docs/design/10-api-layer.md` and `ROADMAP.md` Phase 8 in the
 //! Philharmonic workspace for the full endpoint plan.
