@@ -211,7 +211,9 @@ fn ephemeral_header(
         claims: CanonicalJson::from_bytes(br#"{"role":"tester"}"#).unwrap(),
         kid: common::TEST_API_KID.to_owned(),
     };
-    let token = mint_ephemeral_api_token(&common::test_api_signing_key(), &claims, UnixMillis::now()).unwrap();
+    let token =
+        mint_ephemeral_api_token(&common::test_api_signing_key(), &claims, UnixMillis::now())
+            .unwrap();
     URL_SAFE_NO_PAD.encode(token.to_bytes().unwrap())
 }
 

@@ -10,8 +10,8 @@ use axum::{
 };
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use philharmonic_policy::{
-    ALL_ATOMS, ApiSigningKey, EphemeralApiTokenClaims, MAX_INJECTED_CLAIMS_BYTES,
-    MintingAuthority, PermissionDocument, Principal, atom, mint_ephemeral_api_token,
+    ALL_ATOMS, ApiSigningKey, EphemeralApiTokenClaims, MAX_INJECTED_CLAIMS_BYTES, MintingAuthority,
+    PermissionDocument, Principal, atom, mint_ephemeral_api_token,
 };
 use philharmonic_store::{EntityStore, EntityStoreExt};
 use philharmonic_types::{CanonicalJson, Entity, EntityId, JsonValue, UnixMillis, Uuid};

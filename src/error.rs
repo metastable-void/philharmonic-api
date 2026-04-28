@@ -6,7 +6,7 @@
 
 use axum::{
     Json,
-    http::StatusCode,
+    http::{HeaderValue, StatusCode, header::RETRY_AFTER},
     response::{IntoResponse, Response},
 };
 use serde::{Deserialize, Serialize};
@@ -53,6 +53,8 @@ pub enum ErrorCode {
     Forbidden,
     /// The request body, path, or query parameters were invalid.
     InvalidRequest,
+    /// The request exceeded an API rate limit.
+    RateLimited,
 }
 
 /// API error variants used by sub-phase A middleware and handlers.
@@ -79,6 +81,12 @@ pub enum ApiError {
     /// The request is syntactically valid HTTP but invalid for this API.
     #[error("{0}")]
     InvalidRequest(String),
+    /// The request exceeded an API rate limit.
+    #[error("rate limit exceeded")]
+    RateLimited {
+        /// Seconds the caller should wait before retrying.
+        retry_after_seconds: u64,
+    },
 }
 
 impl ApiError {
@@ -94,6 +102,7 @@ impl ApiError {
             Self::Forbidden => ErrorCode::Forbidden,
             Self::NotFound(_) => ErrorCode::NotFound,
             Self::InvalidRequest(_) => ErrorCode::InvalidRequest,
+            Self::RateLimited { .. } => ErrorCode::RateLimited,
         }
     }
 
@@ -109,11 +118,18 @@ impl ApiError {
             Self::Forbidden => StatusCode::FORBIDDEN,
             Self::NotFound(_) => StatusCode::NOT_FOUND,
             Self::InvalidRequest(_) => StatusCode::BAD_REQUEST,
+            Self::RateLimited { .. } => StatusCode::TOO_MANY_REQUESTS,
         }
     }
 
     /// Build an error response using the supplied correlation ID.
     pub fn into_response_with_correlation_id(self, correlation_id: uuid::Uuid) -> Response {
+        let retry_after_seconds = match &self {
+            Self::RateLimited {
+                retry_after_seconds,
+            } => Some(*retry_after_seconds),
+            _ => None,
+        };
         let status = self.http_status();
         let envelope = ErrorEnvelope {
             error: ErrorBody {
@@ -124,7 +140,13 @@ impl ApiError {
             },
         };
 
-        (status, Json(envelope)).into_response()
+        let mut response = (status, Json(envelope)).into_response();
+        if let Some(value) =
+            retry_after_seconds.and_then(|seconds| HeaderValue::from_str(&seconds.to_string()).ok())
+        {
+            response.headers_mut().insert(RETRY_AFTER, value);
+        }
+        response
     }
 }
 
@@ -204,6 +226,13 @@ mod tests {
                 ApiError::InvalidRequest("bad request".to_string()),
                 ErrorCode::InvalidRequest,
                 StatusCode::BAD_REQUEST,
+            ),
+            (
+                ApiError::RateLimited {
+                    retry_after_seconds: 1,
+                },
+                ErrorCode::RateLimited,
+                StatusCode::TOO_MANY_REQUESTS,
             ),
         ];
 

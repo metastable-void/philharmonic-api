@@ -62,7 +62,7 @@
 //! # fn todo_signing_key() -> philharmonic_policy::ApiSigningKey { todo!() }
 //! ```
 //!
-//! # Current scope (sub-phase G)
+//! # Current scope (sub-phase H)
 //!
 //! The crate includes the axum router, scope-resolution middleware,
 //! request context type, correlation ID propagation, structured logging,
@@ -72,8 +72,8 @@
 //! meta endpoints, workflow template/instance management endpoints, and
 //! endpoint-config management endpoints with SCK encryption at rest, plus
 //! principal, role, role-membership, and minting-authority CRUD, plus the
-//! token-minting endpoint. Audit, rate-limit, tenant, and operator handlers
-//! land in later Phase 8 sub-phases.
+//! token-minting endpoint, tenant administration, audit-log access, deployment
+//! operator tenant management, and in-memory API rate limiting.
 //!
 //! See `docs/design/10-api-layer.md` and `ROADMAP.md` Phase 8 in the
 //! Philharmonic workspace for the full endpoint plan.
@@ -92,7 +92,9 @@ pub use auth::AuthContext;
 pub use context::RequestContext;
 pub use error::{ApiError, ErrorBody, ErrorCode, ErrorEnvelope};
 pub use middleware::authz::{AuthzState, RequestInstanceScope, RequiredPermission, authorize};
+pub use middleware::rate_limit::{RateLimitBucketConfig, RateLimitConfig};
 pub use pagination::{PaginatedResponse, PaginationParams};
+pub use routes::audit::{AuditEventInput, write_audit_event};
 pub use scope::{EntityId, RequestScope, RequestScopeResolver, ResolverError, Tenant};
 pub use store::ApiStore;
 pub use workflow::{StubExecutor, StubLowerer};
@@ -105,8 +107,10 @@ use philharmonic_workflow::{ConfigLowerer, StepExecutor, WorkflowEngine};
 
 use crate::{
     routes::{
-        authorities::AuthorityState, endpoints::EndpointState, memberships::MembershipState,
-        mint::MintState, principals::PrincipalState, roles::RoleState, workflows::WorkflowState,
+        audit::AuditState, authorities::AuthorityState, endpoints::EndpointState,
+        memberships::MembershipState, mint::MintState, operator::OperatorState,
+        principals::PrincipalState, roles::RoleState, tenant::TenantState,
+        workflows::WorkflowState,
     },
     store::ApiStoreHandle,
     workflow::{SharedConfigLowerer, SharedStepExecutor},
@@ -131,6 +135,7 @@ pub struct PhilharmonicApiBuilder {
     config_lowerer: Option<Arc<dyn ConfigLowerer>>,
     sck: Option<Arc<Sck>>,
     key_version: i64,
+    rate_limit_config: RateLimitConfig,
     extra_routes: Option<Router>,
 }
 
@@ -194,6 +199,12 @@ impl PhilharmonicApiBuilder {
         self
     }
 
+    /// Set the in-memory API rate-limit configuration.
+    pub fn rate_limit_config(mut self, config: RateLimitConfig) -> Self {
+        self.rate_limit_config = config;
+        self
+    }
+
     /// Merge additional routes before the middleware chain is applied.
     ///
     /// Sub-phase A uses this hook for smoke tests. Later sub-phases can
@@ -241,6 +252,7 @@ impl PhilharmonicApiBuilder {
 
         let auth_state = middleware::auth::AuthState::new(Arc::clone(&store), Arc::new(registry));
         let authz_state = middleware::authz::AuthzState::new(Arc::clone(&store));
+        let rate_limit_state = middleware::rate_limit::RateLimitState::new(self.rate_limit_config);
         let workflow_store = ApiStoreHandle::new(Arc::clone(&store));
         let workflow_state = WorkflowState::new(
             Arc::clone(&store),
@@ -261,6 +273,9 @@ impl PhilharmonicApiBuilder {
         let authority_state = AuthorityState::new(Arc::clone(&store));
         let mint_state =
             MintState::new(Arc::clone(&store), Arc::new(signing_key), Arc::from(issuer));
+        let tenant_state = TenantState::new(Arc::clone(&store));
+        let audit_state = AuditState::new(Arc::clone(&store));
+        let operator_state = OperatorState::new(Arc::clone(&store));
 
         let mut router = routes::router();
         if let Some(extra_routes) = self.extra_routes {
@@ -270,6 +285,13 @@ impl PhilharmonicApiBuilder {
         let router = router
             .layer(axum::middleware::from_fn(middleware::authz::authorize))
             .layer(axum::Extension(authz_state))
+            .layer(axum::middleware::from_fn(
+                middleware::rate_limit::rate_limit,
+            ))
+            .layer(axum::Extension(rate_limit_state))
+            .layer(axum::Extension(operator_state))
+            .layer(axum::Extension(audit_state))
+            .layer(axum::Extension(tenant_state))
             .layer(axum::Extension(authority_state))
             .layer(axum::Extension(mint_state))
             .layer(axum::Extension(membership_state))
