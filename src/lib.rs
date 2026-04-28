@@ -58,7 +58,7 @@
 //! # fn todo_store() -> Arc<dyn ApiStore> { todo!() }
 //! ```
 //!
-//! # Current scope (sub-phase E)
+//! # Current scope (sub-phase F)
 //!
 //! The crate includes the axum router, scope-resolution middleware,
 //! request context type, correlation ID propagation, structured logging,
@@ -66,9 +66,10 @@
 //! and ephemeral COSE_Sign1 verification via `philharmonic-policy`),
 //! real authorization against route-declared permission atoms, smoke-test
 //! meta endpoints, workflow template/instance management endpoints, and
-//! endpoint-config management endpoints with SCK encryption at rest.
-//! Principal, role, token-minting, audit, rate-limit, and operator handlers
-//! land in later Phase 8 sub-phases.
+//! endpoint-config management endpoints with SCK encryption at rest, plus
+//! principal, role, role-membership, and minting-authority CRUD.
+//! Token-minting, audit, rate-limit, tenant, and operator handlers land in
+//! later Phase 8 sub-phases.
 //!
 //! See `docs/design/10-api-layer.md` and `ROADMAP.md` Phase 8 in the
 //! Philharmonic workspace for the full endpoint plan.
@@ -99,7 +100,10 @@ use philharmonic_policy::{ApiVerifyingKeyRegistry, Sck};
 use philharmonic_workflow::{ConfigLowerer, StepExecutor, WorkflowEngine};
 
 use crate::{
-    routes::{endpoints::EndpointState, workflows::WorkflowState},
+    routes::{
+        authorities::AuthorityState, endpoints::EndpointState, memberships::MembershipState,
+        principals::PrincipalState, roles::RoleState, workflows::WorkflowState,
+    },
     store::ApiStoreHandle,
     workflow::{SharedConfigLowerer, SharedStepExecutor},
 };
@@ -214,6 +218,10 @@ impl PhilharmonicApiBuilder {
             self.sck.as_ref().map(Arc::clone),
             self.key_version,
         );
+        let principal_state = PrincipalState::new(Arc::clone(&store));
+        let role_state = RoleState::new(Arc::clone(&store));
+        let membership_state = MembershipState::new(Arc::clone(&store));
+        let authority_state = AuthorityState::new(Arc::clone(&store));
 
         let mut router = routes::router();
         if let Some(extra_routes) = self.extra_routes {
@@ -223,6 +231,10 @@ impl PhilharmonicApiBuilder {
         let router = router
             .layer(axum::middleware::from_fn(middleware::authz::authorize))
             .layer(axum::Extension(authz_state))
+            .layer(axum::Extension(authority_state))
+            .layer(axum::Extension(membership_state))
+            .layer(axum::Extension(role_state))
+            .layer(axum::Extension(principal_state))
             .layer(axum::Extension(endpoint_state))
             .layer(axum::Extension(workflow_state))
             .layer(axum::middleware::from_fn(middleware::auth::authenticate))

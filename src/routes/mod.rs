@@ -1,11 +1,17 @@
 //! Route table for the public API.
 //!
-//! Sub-phase E exposes meta smoke-test endpoints, workflow management, and
-//! endpoint-config management. Identity, token-minting, audit, rate-limit,
-//! tenant, and operator routes land in later Phase 8 sub-phases.
+//! Sub-phase F exposes meta smoke-test endpoints, workflow management,
+//! endpoint-config management, and identity-management CRUD. Token-minting,
+//! audit, rate-limit, tenant, and operator routes land in later Phase 8
+//! sub-phases.
 
+pub mod authorities;
 pub mod endpoints;
+mod identity;
+pub mod memberships;
 pub mod meta;
+pub mod principals;
+pub mod roles;
 pub mod workflows;
 
 use axum::{
@@ -21,13 +27,17 @@ use crate::{
     error::{ErrorCode, envelope_response},
 };
 
-/// Build the sub-phase E route table.
+/// Build the sub-phase F route table.
 pub fn router() -> Router {
     Router::new()
         .route("/v1/_meta/version", get(meta::version))
         .route("/v1/_meta/health", get(meta::health))
         .merge(workflows::router())
         .merge(endpoints::router())
+        .merge(principals::router())
+        .merge(roles::router())
+        .merge(memberships::router())
+        .merge(authorities::router())
         .fallback(not_found)
 }
 
