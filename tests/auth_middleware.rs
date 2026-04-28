@@ -8,13 +8,15 @@ use axum::{
     routing::get,
 };
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-use philharmonic_api::{AuthContext, ErrorCode, ErrorEnvelope, RequestContext, RequestScope};
+use philharmonic_api::{
+    ApiStore, AuthContext, ErrorCode, ErrorEnvelope, RequestContext, RequestScope,
+};
 use philharmonic_policy::{
     ApiSigningKey, ApiVerifyingKeyEntry, ApiVerifyingKeyRegistry, EphemeralApiTokenClaims,
     MintingAuthority, Principal, Tenant, TenantStatus, TokenHash, VerifyingKey, generate_api_token,
     mint_ephemeral_api_token,
 };
-use philharmonic_store::{EntityRefValue, RevisionRow, StoreExt};
+use philharmonic_store::{EntityRefValue, RevisionRow};
 use philharmonic_types::{CanonicalJson, ContentValue, EntityId, ScalarValue, Sha256, UnixMillis};
 use tower::ServiceExt;
 use zeroize::Zeroizing;
@@ -33,7 +35,7 @@ const ISSUER: &str = "philharmonic-api.example";
 const KID: &str = "api.test-2026-04-28-deadbeef";
 
 fn router(
-    store: Arc<dyn StoreExt>,
+    store: Arc<dyn ApiStore>,
     registry: ApiVerifyingKeyRegistry,
     scope: RequestScope,
 ) -> Router {

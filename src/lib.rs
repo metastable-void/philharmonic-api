@@ -18,9 +18,10 @@
 //! # Builder
 //!
 //! Sub-phase B has three required dependencies: the request-scope resolver,
-//! substrate store, and API verifying-key registry. Later sub-phases add
-//! authorization, workflow execution, endpoint handlers, rate limiting, and
-//! audit dependencies.
+//! substrate store, and API verifying-key registry. Sub-phase C requires that
+//! the store also expose content blobs so role permission documents can be
+//! evaluated. Later sub-phases add workflow execution, endpoint handlers, rate
+//! limiting, and audit dependencies.
 //!
 //! ```no_run
 //! use std::sync::Arc;
@@ -30,7 +31,7 @@
 //!     PhilharmonicApiBuilder, RequestScope, RequestScopeResolver, ResolverError,
 //! };
 //! use philharmonic_policy::ApiVerifyingKeyRegistry;
-//! use philharmonic_store::StoreExt;
+//! use philharmonic_api::ApiStore;
 //!
 //! struct OperatorOnly;
 //!
@@ -53,19 +54,19 @@
 //! let router = api.into_router();
 //! # Ok::<(), philharmonic_api::BuilderError>(())
 //! # }
-//! # fn todo_store() -> Arc<dyn StoreExt> { todo!() }
+//! # fn todo_store() -> Arc<dyn ApiStore> { todo!() }
 //! ```
 //!
-//! # Current scope (sub-phase B)
+//! # Current scope (sub-phase C)
 //!
 //! The crate includes the axum router, scope-resolution middleware,
 //! request context type, correlation ID propagation, structured logging,
 //! error envelope, real authentication (long-lived `pht_` token lookup
 //! and ephemeral COSE_Sign1 verification via `philharmonic-policy`),
-//! and smoke-test meta endpoints. Authorization is still a placeholder
-//! layer; sub-phase C replaces it. Real workflow, endpoint-config,
-//! principal, role, token-minting, audit, rate-limit, and operator
-//! handlers land in later Phase 8 sub-phases.
+//! real authorization against route-declared permission atoms, and smoke-test
+//! meta endpoints. Real workflow, endpoint-config, principal, role,
+//! token-minting, audit, rate-limit, and operator handlers land in later
+//! Phase 8 sub-phases.
 //!
 //! See `docs/design/10-api-layer.md` and `ROADMAP.md` Phase 8 in the
 //! Philharmonic workspace for the full endpoint plan.
@@ -76,29 +77,31 @@ mod error;
 mod middleware;
 mod routes;
 mod scope;
+mod store;
 
 pub use auth::AuthContext;
 pub use context::RequestContext;
 pub use error::{ApiError, ErrorBody, ErrorCode, ErrorEnvelope};
+pub use middleware::authz::{AuthzState, RequestInstanceScope, RequiredPermission, authorize};
 pub use scope::{EntityId, RequestScope, RequestScopeResolver, ResolverError, Tenant};
+pub use store::ApiStore;
 
 use std::sync::Arc;
 
 use axum::Router;
 use philharmonic_policy::ApiVerifyingKeyRegistry;
-use philharmonic_store::StoreExt;
 
 /// Builder for [`PhilharmonicApi`].
 ///
 /// The builder constructs the axum router and middleware chain once all
 /// required trait implementations have been plugged in. Sub-phase B
-/// requires a [`RequestScopeResolver`], store, and API verifying-key
-/// registry; later Phase 8 sub-phases add executor, handler, and
-/// rate-limit/audit dependencies.
+/// requires a [`RequestScopeResolver`], [`ApiStore`], and API verifying-key
+/// registry; later Phase 8 sub-phases add executor, handler, and rate-limit
+/// or audit dependencies.
 #[derive(Default)]
 pub struct PhilharmonicApiBuilder {
     request_scope_resolver: Option<Arc<dyn RequestScopeResolver>>,
-    store: Option<Arc<dyn StoreExt>>,
+    store: Option<Arc<dyn ApiStore>>,
     api_verifying_key_registry: Option<ApiVerifyingKeyRegistry>,
     extra_routes: Option<Router>,
 }
@@ -115,8 +118,8 @@ impl PhilharmonicApiBuilder {
         self
     }
 
-    /// Plug in the storage substrate used by authentication and handlers.
-    pub fn store(mut self, store: Arc<dyn StoreExt>) -> Self {
+    /// Plug in the storage substrate used by middleware and handlers.
+    pub fn store(mut self, store: Arc<dyn ApiStore>) -> Self {
         self.store = Some(store);
         self
     }
@@ -148,7 +151,8 @@ impl PhilharmonicApiBuilder {
             .ok_or(BuilderError::MissingDependency(
                 "api_verifying_key_registry",
             ))?;
-        let auth_state = middleware::auth::AuthState::new(store, Arc::new(registry));
+        let auth_state = middleware::auth::AuthState::new(Arc::clone(&store), Arc::new(registry));
+        let authz_state = middleware::authz::AuthzState::new(store);
 
         let mut router = routes::router();
         if let Some(extra_routes) = self.extra_routes {
@@ -156,9 +160,8 @@ impl PhilharmonicApiBuilder {
         }
 
         let router = router
-            .layer(axum::middleware::from_fn(
-                middleware::authz_placeholder::authz_placeholder,
-            ))
+            .layer(axum::middleware::from_fn(middleware::authz::authorize))
+            .layer(axum::Extension(authz_state))
             .layer(axum::middleware::from_fn(middleware::auth::authenticate))
             .layer(axum::Extension(auth_state))
             .layer(axum::middleware::from_fn_with_state(

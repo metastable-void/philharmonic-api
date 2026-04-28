@@ -28,6 +28,7 @@ use crate::{
     ApiError, AuthContext, RequestContext,
     context::CorrelationContext,
     error::{ErrorCode, envelope_response},
+    store::{ApiStore, ApiStoreHandle},
 };
 
 const CREDENTIAL_HASH_ATTR: &str = "credential_hash";
@@ -40,14 +41,17 @@ const META_PREFIX: &str = "/v1/_meta/";
 /// State required by the authentication middleware.
 #[derive(Clone)]
 pub struct AuthState {
-    store: Arc<dyn StoreExt>,
+    store: ApiStoreHandle,
     registry: Arc<ApiVerifyingKeyRegistry>,
 }
 
 impl AuthState {
     /// Construct authentication middleware state.
-    pub fn new(store: Arc<dyn StoreExt>, registry: Arc<ApiVerifyingKeyRegistry>) -> Self {
-        Self { store, registry }
+    pub fn new(store: Arc<dyn ApiStore>, registry: Arc<ApiVerifyingKeyRegistry>) -> Self {
+        Self {
+            store: ApiStoreHandle::new(store),
+            registry,
+        }
     }
 }
 
@@ -90,9 +94,9 @@ pub async fn authenticate(
 
 async fn authenticate_token(state: &AuthState, token: String) -> Result<AuthContext, AuthFailure> {
     if token.starts_with(TOKEN_PREFIX) {
-        authenticate_long_lived(state.store.as_ref(), &token).await
+        authenticate_long_lived(&state.store, &token).await
     } else {
-        authenticate_ephemeral(state.store.as_ref(), state.registry.as_ref(), &token).await
+        authenticate_ephemeral(&state.store, state.registry.as_ref(), &token).await
     }
 }
 

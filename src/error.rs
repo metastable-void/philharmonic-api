@@ -49,6 +49,8 @@ pub enum ErrorCode {
     NotImplemented,
     /// Authentication failed or was not provided.
     Unauthenticated,
+    /// The authenticated caller is not allowed to perform the request.
+    Forbidden,
 }
 
 /// API error variants used by sub-phase A middleware and handlers.
@@ -66,6 +68,9 @@ pub enum ApiError {
     /// Authentication failed without exposing the verifier decision tree.
     #[error("invalid token")]
     Unauthenticated,
+    /// The authenticated caller is not authorized for the request.
+    #[error("forbidden")]
+    Forbidden,
 }
 
 impl ApiError {
@@ -78,6 +83,7 @@ impl ApiError {
             }
             Self::NotImplemented => ErrorCode::NotImplemented,
             Self::Unauthenticated => ErrorCode::Unauthenticated,
+            Self::Forbidden => ErrorCode::Forbidden,
         }
     }
 
@@ -90,6 +96,7 @@ impl ApiError {
             }
             Self::NotImplemented => StatusCode::NOT_IMPLEMENTED,
             Self::Unauthenticated => StatusCode::UNAUTHORIZED,
+            Self::Forbidden => StatusCode::FORBIDDEN,
         }
     }
 
@@ -170,6 +177,11 @@ mod tests {
                 ApiError::Unauthenticated,
                 ErrorCode::Unauthenticated,
                 StatusCode::UNAUTHORIZED,
+            ),
+            (
+                ApiError::Forbidden,
+                ErrorCode::Forbidden,
+                StatusCode::FORBIDDEN,
             ),
         ];
 

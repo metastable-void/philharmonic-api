@@ -6,13 +6,17 @@ use std::{
 };
 
 use async_trait::async_trait;
-use philharmonic_api::{PhilharmonicApiBuilder, RequestScope, RequestScopeResolver, ResolverError};
+use philharmonic_api::{
+    ApiStore, PhilharmonicApiBuilder, RequestScope, RequestScopeResolver, ResolverError,
+};
 use philharmonic_policy::ApiVerifyingKeyRegistry;
 use philharmonic_store::{
-    EntityRow, EntityStore, IdentityStore, RevisionInput, RevisionRef, RevisionRow, StoreError,
-    StoreExt,
+    ContentStore, EntityRow, EntityStore, IdentityStore, RevisionInput, RevisionRef, RevisionRow,
+    StoreError,
 };
-use philharmonic_types::{Entity, EntityId, Identity, ScalarValue, Sha256, UnixMillis, Uuid};
+use philharmonic_types::{
+    ContentValue, Entity, EntityId, Identity, ScalarValue, Sha256, UnixMillis, Uuid,
+};
 
 pub struct FixedResolver {
     scope: RequestScope,
@@ -35,6 +39,7 @@ impl RequestScopeResolver for FixedResolver {
 pub struct MockStore {
     identities_by_internal: Mutex<HashMap<Uuid, Uuid>>,
     identities_by_public: Mutex<HashMap<Uuid, Uuid>>,
+    contents: Mutex<HashMap<Sha256, ContentValue>>,
     entities: Mutex<HashMap<Uuid, EntityRow>>,
     revisions: Mutex<HashMap<(Uuid, u64), RevisionRow>>,
 }
@@ -218,6 +223,25 @@ impl EntityStore for MockStore {
     }
 }
 
+#[async_trait]
+impl ContentStore for MockStore {
+    async fn put(&self, value: &ContentValue) -> Result<(), StoreError> {
+        self.contents
+            .lock()
+            .unwrap()
+            .insert(value.digest(), value.clone());
+        Ok(())
+    }
+
+    async fn get(&self, hash: Sha256) -> Result<Option<ContentValue>, StoreError> {
+        Ok(self.contents.lock().unwrap().get(&hash).cloned())
+    }
+
+    async fn exists(&self, hash: Sha256) -> Result<bool, StoreError> {
+        Ok(self.contents.lock().unwrap().contains_key(&hash))
+    }
+}
+
 impl MockStore {
     fn find_latest_by(
         &self,
@@ -243,7 +267,7 @@ impl MockStore {
 
 pub fn builder(
     resolver: Arc<dyn RequestScopeResolver>,
-    store: Arc<dyn StoreExt>,
+    store: Arc<dyn ApiStore>,
     registry: ApiVerifyingKeyRegistry,
 ) -> PhilharmonicApiBuilder {
     PhilharmonicApiBuilder::new()
