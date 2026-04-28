@@ -37,6 +37,7 @@ const IS_RETIRED_ATTR: &str = "is_retired";
 const TENANT_STATUS_ATTR: &str = "status";
 const AUTHORITY_EPOCH_ATTR: &str = "epoch";
 const META_PREFIX: &str = "/v1/_meta/";
+const TOKEN_MINT_PATH: &str = "/v1/tokens/mint";
 
 /// State required by the authentication middleware.
 #[derive(Clone)]
@@ -73,7 +74,7 @@ pub async fn authenticate(
             return unauthenticated_response(correlation_id);
         }
     };
-    let result = authenticate_token(&state, token).await;
+    let result = authenticate_token(&state, token, request.uri().path()).await;
     let auth_context = match result {
         Ok(auth_context) => auth_context,
         Err(failure) => {
@@ -92,9 +93,13 @@ pub async fn authenticate(
     next.run(request).await
 }
 
-async fn authenticate_token(state: &AuthState, token: String) -> Result<AuthContext, AuthFailure> {
+async fn authenticate_token(
+    state: &AuthState,
+    token: String,
+    path: &str,
+) -> Result<AuthContext, AuthFailure> {
     if token.starts_with(TOKEN_PREFIX) {
-        authenticate_long_lived(&state.store, &token).await
+        authenticate_long_lived(&state.store, &token, path).await
     } else {
         authenticate_ephemeral(&state.store, state.registry.as_ref(), &token).await
     }
@@ -118,6 +123,7 @@ fn bearer_token(request: &Request) -> Result<String, AuthFailure> {
 async fn authenticate_long_lived(
     store: &dyn StoreExt,
     token: &str,
+    path: &str,
 ) -> Result<AuthContext, AuthFailure> {
     let token_hash = parse_api_token(token).map_err(|error| AuthFailure::LongLivedParse {
         error: error.to_string(),
@@ -128,7 +134,7 @@ async fn authenticate_long_lived(
         .find_by_content_typed::<Principal>(CREDENTIAL_HASH_ATTR, credential_hash)
         .await?;
     if let Some(row) = exactly_one(principal_rows)? {
-        return long_lived_principal_context(store, row).await;
+        return long_lived_principal_context(store, row, false).await;
     }
 
     let authority_rows = store
@@ -137,15 +143,18 @@ async fn authenticate_long_lived(
     let Some(row) = exactly_one(authority_rows)? else {
         return Err(AuthFailure::CredentialNotFound);
     };
-    long_lived_principal_context(store, row).await
+    long_lived_principal_context(store, row, path == TOKEN_MINT_PATH).await
 }
 
 async fn long_lived_principal_context(
     store: &dyn StoreExt,
     row: EntityRow,
+    allow_retired: bool,
 ) -> Result<AuthContext, AuthFailure> {
     let revision = latest_revision(store, row.identity.internal).await?;
-    reject_if_retired(&revision)?;
+    if !allow_retired {
+        reject_if_retired(&revision)?;
+    }
     let tenant_uuid = tenant_ref(&revision)?;
     let tenant_id = active_tenant_id(store, tenant_uuid).await?;
     let principal_id = row

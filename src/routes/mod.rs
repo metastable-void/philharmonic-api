@@ -1,8 +1,8 @@
 //! Route table for the public API.
 //!
-//! Sub-phase F exposes meta smoke-test endpoints, workflow management,
-//! endpoint-config management, and identity-management CRUD. Token-minting,
-//! audit, rate-limit, tenant, and operator routes land in later Phase 8
+//! Sub-phase G exposes meta smoke-test endpoints, workflow management,
+//! endpoint-config management, identity-management CRUD, and token minting.
+//! Audit, rate-limit, tenant, and operator routes land in later Phase 8
 //! sub-phases.
 
 pub mod authorities;
@@ -10,6 +10,7 @@ pub mod endpoints;
 mod identity;
 pub mod memberships;
 pub mod meta;
+pub mod mint;
 pub mod principals;
 pub mod roles;
 pub mod workflows;
@@ -38,6 +39,7 @@ pub fn router() -> Router {
         .merge(roles::router())
         .merge(memberships::router())
         .merge(authorities::router())
+        .merge(mint::router())
         .fallback(not_found)
 }
 

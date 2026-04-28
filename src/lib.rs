@@ -17,9 +17,10 @@
 //!
 //! # Builder
 //!
-//! Sub-phase D requires a request-scope resolver, substrate store, API
-//! verifying-key registry, workflow step executor, and config lowerer. The API
-//! builder constructs the workflow engine internally from those dependencies.
+//! Sub-phase G requires a request-scope resolver, substrate store, API
+//! verifying-key registry, API signing key and issuer, workflow step executor,
+//! and config lowerer. The API builder constructs the workflow engine
+//! internally from those dependencies.
 //!
 //! ```no_run
 //! use std::sync::Arc;
@@ -49,6 +50,8 @@
 //!     .request_scope_resolver(Arc::new(OperatorOnly))
 //!     # .store(todo_store())
 //!     .api_verifying_key_registry(ApiVerifyingKeyRegistry::new())
+//!     # .api_signing_key(todo_signing_key())
+//!     .issuer("philharmonic-api.example".to_string())
 //!     .step_executor(Arc::new(StubExecutor))
 //!     .config_lowerer(Arc::new(StubLowerer))
 //!     .build()?;
@@ -56,9 +59,10 @@
 //! # Ok::<(), philharmonic_api::BuilderError>(())
 //! # }
 //! # fn todo_store() -> Arc<dyn ApiStore> { todo!() }
+//! # fn todo_signing_key() -> philharmonic_policy::ApiSigningKey { todo!() }
 //! ```
 //!
-//! # Current scope (sub-phase F)
+//! # Current scope (sub-phase G)
 //!
 //! The crate includes the axum router, scope-resolution middleware,
 //! request context type, correlation ID propagation, structured logging,
@@ -67,9 +71,9 @@
 //! real authorization against route-declared permission atoms, smoke-test
 //! meta endpoints, workflow template/instance management endpoints, and
 //! endpoint-config management endpoints with SCK encryption at rest, plus
-//! principal, role, role-membership, and minting-authority CRUD.
-//! Token-minting, audit, rate-limit, tenant, and operator handlers land in
-//! later Phase 8 sub-phases.
+//! principal, role, role-membership, and minting-authority CRUD, plus the
+//! token-minting endpoint. Audit, rate-limit, tenant, and operator handlers
+//! land in later Phase 8 sub-phases.
 //!
 //! See `docs/design/10-api-layer.md` and `ROADMAP.md` Phase 8 in the
 //! Philharmonic workspace for the full endpoint plan.
@@ -96,13 +100,13 @@ pub use workflow::{StubExecutor, StubLowerer};
 use std::sync::Arc;
 
 use axum::Router;
-use philharmonic_policy::{ApiVerifyingKeyRegistry, Sck};
+use philharmonic_policy::{ApiSigningKey, ApiVerifyingKeyRegistry, Sck};
 use philharmonic_workflow::{ConfigLowerer, StepExecutor, WorkflowEngine};
 
 use crate::{
     routes::{
         authorities::AuthorityState, endpoints::EndpointState, memberships::MembershipState,
-        principals::PrincipalState, roles::RoleState, workflows::WorkflowState,
+        mint::MintState, principals::PrincipalState, roles::RoleState, workflows::WorkflowState,
     },
     store::ApiStoreHandle,
     workflow::{SharedConfigLowerer, SharedStepExecutor},
@@ -111,15 +115,18 @@ use crate::{
 /// Builder for [`PhilharmonicApi`].
 ///
 /// The builder constructs the axum router and middleware chain once all
-/// required trait implementations have been plugged in. Sub-phase B
-/// requires a [`RequestScopeResolver`], [`ApiStore`], API verifying-key
-/// registry, workflow [`StepExecutor`], and workflow [`ConfigLowerer`]. Later
-/// Phase 8 sub-phases add rate-limit and audit dependencies.
+/// required trait implementations have been plugged in. Sub-phase G requires a
+/// [`RequestScopeResolver`], [`ApiStore`], API verifying-key registry, API
+/// signing key, issuer, workflow [`StepExecutor`], and workflow
+/// [`ConfigLowerer`]. Later Phase 8 sub-phases add rate-limit and audit
+/// dependencies.
 #[derive(Default)]
 pub struct PhilharmonicApiBuilder {
     request_scope_resolver: Option<Arc<dyn RequestScopeResolver>>,
     store: Option<Arc<dyn ApiStore>>,
     api_verifying_key_registry: Option<ApiVerifyingKeyRegistry>,
+    api_signing_key: Option<ApiSigningKey>,
+    issuer: Option<String>,
     step_executor: Option<Arc<dyn StepExecutor>>,
     config_lowerer: Option<Arc<dyn ConfigLowerer>>,
     sck: Option<Arc<Sck>>,
@@ -148,6 +155,18 @@ impl PhilharmonicApiBuilder {
     /// Plug in API signing-key verifiers for ephemeral-token authentication.
     pub fn api_verifying_key_registry(mut self, registry: ApiVerifyingKeyRegistry) -> Self {
         self.api_verifying_key_registry = Some(registry);
+        self
+    }
+
+    /// Plug in the API signing key used by the token-minting endpoint.
+    pub fn api_signing_key(mut self, key: ApiSigningKey) -> Self {
+        self.api_signing_key = Some(key);
+        self
+    }
+
+    /// Set the issuer string carried by freshly minted ephemeral API tokens.
+    pub fn issuer(mut self, issuer: String) -> Self {
+        self.issuer = Some(issuer);
         self
     }
 
@@ -196,6 +215,12 @@ impl PhilharmonicApiBuilder {
             .ok_or(BuilderError::MissingDependency(
                 "api_verifying_key_registry",
             ))?;
+        let signing_key = self
+            .api_signing_key
+            .ok_or(BuilderError::MissingDependency("api_signing_key"))?;
+        let issuer = self
+            .issuer
+            .ok_or(BuilderError::MissingDependency("issuer"))?;
         let executor = self
             .step_executor
             .ok_or(BuilderError::MissingDependency("step_executor"))?;
@@ -222,6 +247,8 @@ impl PhilharmonicApiBuilder {
         let role_state = RoleState::new(Arc::clone(&store));
         let membership_state = MembershipState::new(Arc::clone(&store));
         let authority_state = AuthorityState::new(Arc::clone(&store));
+        let mint_state =
+            MintState::new(Arc::clone(&store), Arc::new(signing_key), Arc::from(issuer));
 
         let mut router = routes::router();
         if let Some(extra_routes) = self.extra_routes {
@@ -232,6 +259,7 @@ impl PhilharmonicApiBuilder {
             .layer(axum::middleware::from_fn(middleware::authz::authorize))
             .layer(axum::Extension(authz_state))
             .layer(axum::Extension(authority_state))
+            .layer(axum::Extension(mint_state))
             .layer(axum::Extension(membership_state))
             .layer(axum::Extension(role_state))
             .layer(axum::Extension(principal_state))
@@ -286,6 +314,7 @@ pub enum BuilderError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use zeroize::Zeroizing;
 
     #[test]
     fn builder_reports_missing_scope_resolver() {
@@ -302,6 +331,8 @@ mod tests {
             .request_scope_resolver(Arc::new(NoopResolver))
             .store(Arc::new(NoopStore))
             .api_verifying_key_registry(ApiVerifyingKeyRegistry::new())
+            .api_signing_key(signing_key())
+            .issuer("philharmonic-api.example".to_string())
             .config_lowerer(Arc::new(StubLowerer))
             .build();
         assert!(matches!(
@@ -311,17 +342,55 @@ mod tests {
     }
 
     #[test]
+    fn builder_reports_missing_signing_key() {
+        let result = PhilharmonicApiBuilder::new()
+            .request_scope_resolver(Arc::new(NoopResolver))
+            .store(Arc::new(NoopStore))
+            .api_verifying_key_registry(ApiVerifyingKeyRegistry::new())
+            .issuer("philharmonic-api.example".to_string())
+            .step_executor(Arc::new(StubExecutor))
+            .config_lowerer(Arc::new(StubLowerer))
+            .build();
+        assert!(matches!(
+            result,
+            Err(BuilderError::MissingDependency("api_signing_key"))
+        ));
+    }
+
+    #[test]
+    fn builder_reports_missing_issuer() {
+        let result = PhilharmonicApiBuilder::new()
+            .request_scope_resolver(Arc::new(NoopResolver))
+            .store(Arc::new(NoopStore))
+            .api_verifying_key_registry(ApiVerifyingKeyRegistry::new())
+            .api_signing_key(signing_key())
+            .step_executor(Arc::new(StubExecutor))
+            .config_lowerer(Arc::new(StubLowerer))
+            .build();
+        assert!(matches!(
+            result,
+            Err(BuilderError::MissingDependency("issuer"))
+        ));
+    }
+
+    #[test]
     fn builder_reports_missing_lowerer() {
         let result = PhilharmonicApiBuilder::new()
             .request_scope_resolver(Arc::new(NoopResolver))
             .store(Arc::new(NoopStore))
             .api_verifying_key_registry(ApiVerifyingKeyRegistry::new())
+            .api_signing_key(signing_key())
+            .issuer("philharmonic-api.example".to_string())
             .step_executor(Arc::new(StubExecutor))
             .build();
         assert!(matches!(
             result,
             Err(BuilderError::MissingDependency("config_lowerer"))
         ));
+    }
+
+    fn signing_key() -> ApiSigningKey {
+        ApiSigningKey::from_seed(Zeroizing::new([7; 32]), "api.test".to_string())
     }
 
     struct NoopResolver;
