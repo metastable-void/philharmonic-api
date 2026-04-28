@@ -2,6 +2,14 @@
 
 Part of the Philharmonic workspace: https://github.com/metastable-void/philharmonic-workspace
 
+`philharmonic-api` is the public HTTP API layer for Philharmonic. It
+exposes a builder that accepts deployment-supplied trait implementations
+such as `RequestScopeResolver` and returns a ready-to-serve `axum::Router`.
+The current 0.0.0 crate is a Phase 8 skeleton with scope resolution,
+correlation IDs, structured error envelopes, placeholder auth/authz
+middleware, and meta smoke endpoints; substantive v1 handlers land in
+later Phase 8 sub-phases.
+
 ## Contributing
 
 This crate is developed as a submodule of the Philharmonic

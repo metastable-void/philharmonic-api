@@ -9,9 +9,14 @@ this crate adheres to
 
 ## [Unreleased]
 
-Implementation pending. See the
-[Philharmonic workspace ROADMAP](https://github.com/metastable-void/philharmonic-workspace/blob/main/ROADMAP.md)
-for the phase that populates this crate.
+- Added the Phase 8 sub-phase A axum skeleton: builder,
+  deployment-supplied request-scope resolution, request context,
+  structured error envelope, correlation ID propagation, structured
+  request logging, placeholder auth/authz middleware, and meta smoke
+  endpoints.
+- Real authentication, authorization, endpoint handlers, substrate
+  access, workflow-engine integration, audit, and rate limiting remain
+  planned for later Phase 8 sub-phases.
 
 ## [0.0.0]
 
