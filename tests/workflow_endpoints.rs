@@ -7,9 +7,9 @@ use axum::{
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use philharmonic_api::{ApiStore, RequestScope};
 use philharmonic_policy::{
-    ApiSigningKey, ApiVerifyingKeyEntry, ApiVerifyingKeyRegistry, EphemeralApiTokenClaims,
-    MintingAuthority, Principal, PrincipalKind, RoleDefinition, RoleMembership, Tenant,
-    TenantStatus, TokenHash, VerifyingKey, atom, generate_api_token, mint_ephemeral_api_token,
+    EphemeralApiTokenClaims, MintingAuthority, Principal, PrincipalKind, RoleDefinition,
+    RoleMembership, Tenant, TenantStatus, TokenHash, atom, generate_api_token,
+    mint_ephemeral_api_token,
 };
 use philharmonic_store::{ContentStore, EntityRefValue, RevisionRow};
 use philharmonic_types::{
@@ -17,20 +17,8 @@ use philharmonic_types::{
 };
 use serde_json::json;
 use tower::ServiceExt;
-use zeroize::Zeroizing;
 
 mod common;
-
-const SEED: [u8; 32] = [
-    0x9d, 0x61, 0xb1, 0x9d, 0xef, 0xfd, 0x5a, 0x60, 0xba, 0x84, 0x4a, 0xf4, 0x92, 0xec, 0x2c, 0xc4,
-    0x44, 0x49, 0xc5, 0x69, 0x7b, 0x32, 0x69, 0x19, 0x70, 0x3b, 0xac, 0x03, 0x1c, 0xae, 0x7f, 0x60,
-];
-const PUBLIC: [u8; 32] = [
-    0xd7, 0x5a, 0x98, 0x01, 0x82, 0xb1, 0x0a, 0xb7, 0xd5, 0x4b, 0xfe, 0xd3, 0xc9, 0x64, 0x07, 0x3a,
-    0x0e, 0xe1, 0x72, 0xf3, 0xda, 0xa6, 0x23, 0x25, 0xaf, 0x02, 0x1a, 0x68, 0xf7, 0x07, 0x51, 0x1a,
-];
-const ISSUER: &str = "philharmonic-api.example";
-const KID: &str = "api.workflow-endpoints";
 
 struct Fixture {
     router: axum::Router,
@@ -61,7 +49,7 @@ fn router(store: Arc<dyn ApiStore>, tenant: EntityId<Tenant>) -> axum::Router {
     common::builder(
         Arc::new(common::FixedResolver::new(RequestScope::Tenant(tenant))),
         store,
-        registry(),
+        common::test_api_verifying_key_registry(),
     )
     .build()
     .unwrap()
@@ -204,27 +192,6 @@ fn token_hash_content_hash(token_hash: TokenHash) -> Sha256 {
     ContentValue::new(token_hash.0.to_vec()).digest()
 }
 
-fn signing_key() -> ApiSigningKey {
-    ApiSigningKey::from_seed(Zeroizing::new(SEED), KID.to_owned())
-}
-
-fn registry() -> ApiVerifyingKeyRegistry {
-    let now = UnixMillis::now();
-    let mut registry = ApiVerifyingKeyRegistry::new();
-    registry
-        .insert(
-            KID.to_owned(),
-            ApiVerifyingKeyEntry {
-                vk: VerifyingKey::from_bytes(&PUBLIC).unwrap(),
-                issuer: ISSUER.to_owned(),
-                not_before: UnixMillis(now.as_i64() - 60_000),
-                not_after: UnixMillis(now.as_i64() + 86_400_000),
-            },
-        )
-        .unwrap();
-    registry
-}
-
 fn ephemeral_header(
     tenant: EntityId<Tenant>,
     authority: EntityId<MintingAuthority>,
@@ -232,7 +199,7 @@ fn ephemeral_header(
 ) -> String {
     let now = UnixMillis::now();
     let claims = EphemeralApiTokenClaims {
-        iss: ISSUER.to_owned(),
+        iss: common::TEST_API_ISSUER.to_owned(),
         iat: now,
         exp: UnixMillis(now.as_i64() + 3_600_000),
         sub: "subject-42".to_owned(),
@@ -242,9 +209,9 @@ fn ephemeral_header(
         instance: Some(instance_scope),
         permissions: vec![atom::WORKFLOW_INSTANCE_EXECUTE.to_string()],
         claims: CanonicalJson::from_bytes(br#"{"role":"tester"}"#).unwrap(),
-        kid: KID.to_owned(),
+        kid: common::TEST_API_KID.to_owned(),
     };
-    let token = mint_ephemeral_api_token(&signing_key(), &claims, UnixMillis::now()).unwrap();
+    let token = mint_ephemeral_api_token(&common::test_api_signing_key(), &claims, UnixMillis::now()).unwrap();
     URL_SAFE_NO_PAD.encode(token.to_bytes().unwrap())
 }
 

@@ -44,7 +44,7 @@ fn router() -> Router {
     common::builder(
         Arc::new(PathResolver),
         common::MockStore::new(),
-        philharmonic_policy::ApiVerifyingKeyRegistry::new(),
+        common::test_api_verifying_key_registry(),
     )
     .extra_routes(extra_routes)
     .build()

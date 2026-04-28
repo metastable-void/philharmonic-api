@@ -10,8 +10,8 @@ use axum::{
 };
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use philharmonic_policy::{
-    ApiSigningKey, EphemeralApiTokenClaims, MAX_INJECTED_CLAIMS_BYTES, MintingAuthority,
-    PermissionDocument, Principal, atom, mint_ephemeral_api_token,
+    ALL_ATOMS, ApiSigningKey, EphemeralApiTokenClaims, MAX_INJECTED_CLAIMS_BYTES,
+    MintingAuthority, PermissionDocument, Principal, atom, mint_ephemeral_api_token,
 };
 use philharmonic_store::{EntityStore, EntityStoreExt};
 use philharmonic_types::{CanonicalJson, Entity, EntityId, JsonValue, UnixMillis, Uuid};
@@ -70,6 +70,7 @@ async fn mint_token(
         return Err(ApiError::Forbidden);
     }
 
+    validate_permission_atoms(&request.requested_permissions)?;
     let authority = load_authority(&state, authority_id, tenant_id).await?;
     authority.ensure_can_mint()?;
     validate_lifetime_seconds(request.lifetime_seconds, authority.max_lifetime_seconds)?;
@@ -111,6 +112,12 @@ async fn mint_token(
         tracing::warn!(?error, "ephemeral token serialization failed");
         ApiError::Internal("token signing failed".to_string())
     })?;
+    if token_bytes.len() > philharmonic_policy::MAX_TOKEN_BYTES {
+        return Err(ApiError::InvalidRequest(
+            "minted token exceeds maximum token size; reduce subject length or permissions"
+                .to_string(),
+        ));
+    }
     let encoded = URL_SAFE_NO_PAD.encode(token_bytes);
 
     let audit_instance_id = request.instance_id.map(|id| id.to_string());
@@ -270,14 +277,29 @@ fn validate_lifetime_seconds(
     Ok(())
 }
 
+fn validate_permission_atoms(requested: &[String]) -> Result<(), ApiError> {
+    for atom in requested {
+        if !ALL_ATOMS.contains(&atom.as_str()) {
+            return Err(ApiError::InvalidRequest(format!(
+                "unknown permission atom: {atom}"
+            )));
+        }
+    }
+    Ok(())
+}
+
 fn clip_permissions(
     requested: &[String],
     envelope: &PermissionDocument,
     authority_id: EntityId<MintingAuthority>,
 ) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
     let mut clipped = Vec::new();
     let mut stripped = Vec::new();
     for permission in requested {
+        if !seen.insert(permission.clone()) {
+            continue;
+        }
         if envelope.contains(permission) {
             clipped.push(permission.clone());
         } else {

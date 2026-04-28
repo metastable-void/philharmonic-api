@@ -22,7 +22,7 @@ fn router() -> axum::Router {
     common::builder(
         Arc::new(OperatorResolver),
         common::MockStore::new(),
-        philharmonic_policy::ApiVerifyingKeyRegistry::new(),
+        common::test_api_verifying_key_registry(),
     )
     .build()
     .unwrap()

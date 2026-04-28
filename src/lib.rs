@@ -227,6 +227,18 @@ impl PhilharmonicApiBuilder {
         let lowerer = self
             .config_lowerer
             .ok_or(BuilderError::MissingDependency("config_lowerer"))?;
+        if let Some(entry) = registry.lookup(signing_key.kid()) {
+            if entry.issuer != *issuer {
+                return Err(BuilderError::ConfigurationMismatch(
+                    "builder issuer does not match the verifying-key registry entry's issuer for the signing key kid",
+                ));
+            }
+        } else {
+            return Err(BuilderError::ConfigurationMismatch(
+                "signing key kid not found in the verifying-key registry",
+            ));
+        }
+
         let auth_state = middleware::auth::AuthState::new(Arc::clone(&store), Arc::new(registry));
         let authz_state = middleware::authz::AuthzState::new(Arc::clone(&store));
         let workflow_store = ApiStoreHandle::new(Arc::clone(&store));
@@ -309,6 +321,9 @@ pub enum BuilderError {
     /// A dependency required by this sub-phase was not provided.
     #[error("missing required dependency: {0}")]
     MissingDependency(&'static str),
+    /// A configuration inconsistency was detected at build time.
+    #[error("configuration mismatch: {0}")]
+    ConfigurationMismatch(&'static str),
 }
 
 #[cfg(test)]

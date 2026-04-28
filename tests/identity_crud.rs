@@ -6,8 +6,8 @@ use axum::{
 };
 use philharmonic_api::{ApiStore, RequestScope};
 use philharmonic_policy::{
-    ApiVerifyingKeyRegistry, Principal, PrincipalKind, RoleDefinition, RoleMembership, Tenant,
-    TenantStatus, TokenHash, atom, generate_api_token,
+    Principal, PrincipalKind, RoleDefinition, RoleMembership, Tenant, TenantStatus, TokenHash,
+    atom, generate_api_token,
 };
 use philharmonic_store::{ContentStore, EntityRefValue, RevisionRow};
 use philharmonic_types::{
@@ -54,7 +54,7 @@ fn router(store: Arc<dyn ApiStore>, tenant: EntityId<Tenant>) -> axum::Router {
     common::builder(
         Arc::new(common::FixedResolver::new(RequestScope::Tenant(tenant))),
         store,
-        ApiVerifyingKeyRegistry::new(),
+        common::test_api_verifying_key_registry(),
     )
     .build()
     .unwrap()

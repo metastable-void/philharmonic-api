@@ -300,7 +300,7 @@ pub fn basic_builder() -> PhilharmonicApiBuilder {
     builder(
         Arc::new(FixedResolver::new(RequestScope::Operator)),
         MockStore::new(),
-        ApiVerifyingKeyRegistry::new(),
+        test_api_verifying_key_registry(),
     )
 }
 
