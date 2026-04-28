@@ -134,6 +134,7 @@ async fn list_endpoints(
     Extension(context): Extension<RequestContext>,
     Query(params): Query<PaginationParams>,
 ) -> Result<Json<PaginatedResponse<EndpointMetadataResponse>>, ApiError> {
+    require_sck(&state)?;
     let tenant = require_tenant_principal(&context)?;
     let mut rows = Vec::new();
     rows.extend(
@@ -161,6 +162,7 @@ async fn read_endpoint_metadata(
     Extension(context): Extension<RequestContext>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<EndpointMetadataResponse>, ApiError> {
+    require_sck(&state)?;
     let tenant = require_tenant_principal(&context)?;
     let endpoint_id = resolve_public_id::<TenantEndpointConfig>(&state.store, id).await?;
     let row = state
@@ -275,6 +277,7 @@ async fn retire_endpoint(
     Extension(context): Extension<RequestContext>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<RetireEndpointResponse>, ApiError> {
+    require_sck(&state)?;
     let tenant = require_tenant_principal(&context)?;
     let endpoint_id = resolve_public_id::<TenantEndpointConfig>(&state.store, id).await?;
     let latest = latest_revision::<TenantEndpointConfig>(&state.store, endpoint_id).await?;
