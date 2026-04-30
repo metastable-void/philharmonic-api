@@ -28,13 +28,24 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json", "fm
 uuid = { version = "1.23.1", features = ["v4", "serde"] }
 
 [dev-dependencies]
+coset = "0.4"
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+hex = "0.4"
+ml-kem = "0.2"
+philharmonic-connector-client = "0.1.0"
+philharmonic-connector-common = "0.2.0"
+philharmonic-connector-impl-api = "0.1.0"
+philharmonic-connector-impl-vector-search = "0.1.0"
+philharmonic-connector-service = "0.1.0"
 philharmonic-store-sqlx-mysql = "0.1.0"
+rand_core = { version = "0.6", features = ["getrandom"] }
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
 serial_test = { version = "3", features = ["file_locks"] }
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "mysql"] }
 testcontainers = "0.27"
 testcontainers-modules = { version = "0.15", features = ["mysql"] }
 tokio = { version = "1.52.1", features = ["test-util", "macros", "rt-multi-thread"] }
+x25519-dalek = { version = "2", features = ["static_secrets"] }
 zeroize = "1.8"
 
 [profile.release]
