@@ -252,7 +252,7 @@ fn generate_crypto_keys() -> CryptoKeys {
         REALM_KID.to_string(),
         RealmPrivateKeyEntry {
             kem_sk: Zeroizing::new(kem_sk),
-            ecdh_sk: x25519_sk,
+            ecdh_sk: Zeroizing::new(x25519_sk),
             realm: RealmId::new(SERVICE_REALM),
             not_before,
             not_after,
