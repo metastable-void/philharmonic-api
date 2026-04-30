@@ -30,9 +30,9 @@ pub enum AuthContext {
         injected_claims: serde_json::Value,
         /// Optional workflow-instance scope.
         ///
-        /// TODO(sub-phase D): replace this raw UUID with
-        /// `EntityId<WorkflowInstance>` once `WorkflowInstance` is exposed
-        /// through the API crate's dependency surface.
+        /// Raw UUID rather than `EntityId<WorkflowInstance>` because
+        /// `WorkflowInstance` is not in the API crate's dependency
+        /// surface. Functionally equivalent for scope enforcement.
         instance_scope: Option<Uuid>,
     },
 }
