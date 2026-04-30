@@ -9,6 +9,8 @@ this crate adheres to
 
 ## [Unreleased]
 
+## [0.1.2]
+
 ## [0.1.0]
 
 Initial functional release. Implements Phase 8 of the Philharmonic
