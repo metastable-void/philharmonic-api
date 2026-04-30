@@ -28,6 +28,12 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json", "fm
 uuid = { version = "1.23.1", features = ["v4", "serde"] }
 
 [dev-dependencies]
+philharmonic-store-sqlx-mysql = "0.1.0"
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
+serial_test = { version = "3", features = ["file_locks"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "mysql"] }
+testcontainers = "0.27"
+testcontainers-modules = { version = "0.15", features = ["mysql"] }
 tokio = { version = "1.52.1", features = ["test-util", "macros", "rt-multi-thread"] }
 zeroize = "1.8"
 
