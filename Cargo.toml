@@ -1,6 +1,6 @@
 [package]
 name = "philharmonic-api"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 rust-version = "1.88"
 license = "Apache-2.0 OR MPL-2.0"
@@ -36,7 +36,7 @@ philharmonic-connector-client = "0.1.0"
 philharmonic-connector-common = "0.2.0"
 philharmonic-connector-impl-api = "0.1.0"
 philharmonic-connector-impl-vector-search = "0.1.0"
-philharmonic-connector-service = "0.1.0"
+philharmonic-connector-service = "0.2.0"
 philharmonic-store-sqlx-mysql = "0.1.0"
 rand_core = { version = "0.6", features = ["getrandom"] }
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
