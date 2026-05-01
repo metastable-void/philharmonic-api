@@ -218,6 +218,7 @@ async fn create_endpoint(
             token,
             json!({
                 "display_name": display_name,
+                "implementation": "llm_openai_compat",
                 "config": config
             }),
         ))
@@ -273,6 +274,10 @@ async fn seed_endpoint_for_tenant(
         .into_bytes();
     let encrypted_hash = put_content(store, &wire).await;
     let display_name_hash = put_content(store, &display_name).await;
+    let impl_bytes = CanonicalJson::from_value(&JsonValue::String("llm_openai_compat".to_string()))
+        .unwrap()
+        .into_bytes();
+    let impl_hash = put_content(store, &impl_bytes).await;
     store.insert_revision(RevisionRow {
         entity_id: endpoint.internal().as_uuid(),
         revision_seq: 0,
@@ -280,6 +285,7 @@ async fn seed_endpoint_for_tenant(
         content_attrs: HashMap::from([
             ("display_name".to_string(), display_name_hash),
             ("encrypted_config".to_string(), encrypted_hash),
+            ("implementation".to_string(), impl_hash),
         ]),
         entity_attrs: HashMap::from([(
             "tenant".to_string(),
@@ -328,6 +334,7 @@ async fn create_read_metadata_and_read_decrypted_round_trip() {
     let metadata = response_json(response).await;
     assert_eq!(metadata["endpoint_id"], endpoint_id.to_string());
     assert_eq!(metadata["display_name"], "Primary DB");
+    assert_eq!(metadata["implementation"], "llm_openai_compat");
     assert_eq!(metadata["is_retired"], false);
     assert_eq!(metadata["key_version"], KEY_VERSION);
 
@@ -527,6 +534,7 @@ async fn endpoint_routes_without_sck_return_internal_error() {
             &principal_token,
             json!({
                 "display_name": "Missing SCK",
+                "implementation": "llm_openai_compat",
                 "config": { "secret": "not-stored" }
             }),
         ))

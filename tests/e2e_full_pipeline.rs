@@ -711,6 +711,7 @@ async fn create_endpoint(
         .request(Method::POST, "/v1/endpoints")
         .json(&json!({
             "display_name": display_name,
+            "implementation": "llm_openai_compat",
             "config": config
         }))
         .send()
