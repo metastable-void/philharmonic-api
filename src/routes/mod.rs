@@ -16,6 +16,7 @@ pub mod operator;
 pub mod principals;
 pub mod roles;
 pub mod tenant;
+pub mod whoami;
 pub mod workflows;
 
 use axum::{
@@ -36,6 +37,7 @@ pub fn router() -> Router {
     Router::new()
         .route("/v1/_meta/version", get(meta::version))
         .route("/v1/_meta/health", get(meta::health))
+        .route("/v1/whoami", get(whoami::whoami))
         .merge(workflows::router())
         .merge(endpoints::router())
         .merge(principals::router())
