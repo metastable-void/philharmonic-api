@@ -138,7 +138,6 @@ pub struct PhilharmonicApiBuilder {
     rate_limit_config: RateLimitConfig,
     brand_name: Option<Arc<str>>,
     extra_routes: Option<Router>,
-    bypass_routes: Option<Router>,
 }
 
 impl PhilharmonicApiBuilder {
@@ -217,15 +216,6 @@ impl PhilharmonicApiBuilder {
         self
     }
 
-    /// Merge routes that bypass the authentication/authorization middleware.
-    ///
-    /// Used for the embedded connector router, which authenticates
-    /// requests with its own COSE_Sign1 verification (not API tokens).
-    pub fn bypass_routes(mut self, router: Router) -> Self {
-        self.bypass_routes = Some(router);
-        self
-    }
-
     /// Set the WebUI brand name displayed in the UI chrome.
     pub fn brand_name(mut self, name: impl Into<Arc<str>>) -> Self {
         self.brand_name = Some(name.into());
@@ -299,7 +289,7 @@ impl PhilharmonicApiBuilder {
             api_routes = api_routes.merge(extra_routes);
         }
 
-        let mut router = api_routes
+        let router = api_routes
             .layer(axum::middleware::from_fn(middleware::authz::authorize))
             .layer(axum::Extension(authz_state))
             .layer(axum::middleware::from_fn(
@@ -331,10 +321,6 @@ impl PhilharmonicApiBuilder {
             .layer(axum::middleware::from_fn(
                 middleware::correlation_id::correlation_id,
             ));
-
-        if let Some(bypass_routes) = self.bypass_routes {
-            router = router.merge(bypass_routes);
-        }
 
         Ok(PhilharmonicApi { router })
     }
