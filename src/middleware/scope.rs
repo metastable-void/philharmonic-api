@@ -8,7 +8,11 @@ use std::{sync::Arc, time::Instant};
 
 use axum::{extract::Request, middleware::Next, response::Response};
 
-use crate::{ApiError, RequestContext, RequestScopeResolver, context::CorrelationContext};
+use crate::{
+    ApiError, RequestContext, RequestScope, RequestScopeResolver, context::CorrelationContext,
+};
+
+const META_PREFIX: &str = "/v1/_meta/";
 
 /// Resolve tenant/operator scope and attach [`RequestContext`].
 pub async fn resolve_scope(
@@ -32,12 +36,18 @@ pub async fn resolve_scope(
             }
         });
 
+    let is_meta = request.uri().path().starts_with(META_PREFIX);
+
     let (mut parts, body) = request.into_parts();
-    let scope = match resolver.resolve(&parts).await {
-        Ok(scope) => scope,
-        Err(error) => {
-            return ApiError::from(error)
-                .into_response_with_correlation_id(correlation.correlation_id);
+    let scope = if is_meta {
+        RequestScope::Operator
+    } else {
+        match resolver.resolve(&parts).await {
+            Ok(scope) => scope,
+            Err(error) => {
+                return ApiError::from(error)
+                    .into_response_with_correlation_id(correlation.correlation_id);
+            }
         }
     };
 

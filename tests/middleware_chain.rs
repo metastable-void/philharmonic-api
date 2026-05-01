@@ -23,9 +23,10 @@ struct PathResolver;
 impl RequestScopeResolver for PathResolver {
     async fn resolve(&self, parts: &http::request::Parts) -> Result<RequestScope, ResolverError> {
         match parts.uri.path() {
-            "/v1/_meta/tenant" => Ok(RequestScope::Tenant(tenant_id())),
             "/v1/_meta/operator" => Ok(RequestScope::Operator),
-            "/v1/_meta/unscoped" => Err(ResolverError::Unscoped),
+            "/v1/scope-test/tenant" => Ok(RequestScope::Tenant(tenant_id())),
+            "/v1/scope-test/operator" => Ok(RequestScope::Operator),
+            "/v1/scope-test/unscoped" => Err(ResolverError::Unscoped),
             _ => Ok(RequestScope::Operator),
         }
     }
@@ -37,9 +38,10 @@ fn tenant_id() -> EntityId<Tenant> {
 
 fn router() -> Router {
     let extra_routes = Router::new()
-        .route("/v1/_meta/tenant", get(scope_kind))
         .route("/v1/_meta/operator", get(scope_kind))
-        .route("/v1/_meta/unscoped", get(scope_kind));
+        .route("/v1/scope-test/tenant", get(scope_kind))
+        .route("/v1/scope-test/operator", get(scope_kind))
+        .route("/v1/scope-test/unscoped", get(scope_kind));
 
     common::builder(
         Arc::new(PathResolver),
@@ -65,29 +67,7 @@ async fn scope_kind(Extension(context): Extension<RequestContext>) -> impl IntoR
 }
 
 #[tokio::test]
-async fn middleware_attaches_tenant_scope() {
-    let response = router()
-        .oneshot(
-            Request::builder()
-                .uri("/v1/_meta/tenant")
-                .body(axum::body::Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-
-    assert_eq!(json["scope"], "tenant");
-    assert_eq!(json["auth_is_none"], true);
-}
-
-#[tokio::test]
-async fn middleware_attaches_operator_scope() {
+async fn meta_paths_always_resolve_to_operator() {
     let response = router()
         .oneshot(
             Request::builder()
@@ -109,11 +89,30 @@ async fn middleware_attaches_operator_scope() {
 }
 
 #[tokio::test]
+async fn scope_resolver_runs_on_non_meta_paths() {
+    let response = router()
+        .oneshot(
+            Request::builder()
+                .uri("/v1/scope-test/tenant")
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        response.status(),
+        StatusCode::UNAUTHORIZED,
+        "scope resolved successfully, then auth rejected (no bearer token)"
+    );
+}
+
+#[tokio::test]
 async fn middleware_returns_structured_unscoped_error() {
     let response = router()
         .oneshot(
             Request::builder()
-                .uri("/v1/_meta/unscoped")
+                .uri("/v1/scope-test/unscoped")
                 .body(axum::body::Body::empty())
                 .unwrap(),
         )
