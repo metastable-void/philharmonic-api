@@ -104,10 +104,13 @@ async fn create_endpoint(
     .await?;
     let display_name_hash =
         put_json(&state.store, &JsonValue::String(request.display_name)).await?;
+    let implementation_hash =
+        put_json(&state.store, &JsonValue::String(request.implementation)).await?;
 
     let revision = RevisionInput::new()
         .with_content("display_name", display_name_hash)
         .with_content("encrypted_config", encrypted_config_hash)
+        .with_content("implementation", implementation_hash)
         .with_entity(
             "tenant",
             EntityRefValue::pinned(tenant.internal().as_uuid(), 0),
@@ -254,6 +257,10 @@ async fn rotate_endpoint(
 
     let mut revision = RevisionInput::new()
         .with_content("encrypted_config", encrypted_config_hash)
+        .with_content(
+            "implementation",
+            required_content_hash(&latest, "implementation")?,
+        )
         .with_entity("tenant", tenant_ref)
         .with_scalar("key_version", ScalarValue::I64(state.key_version))
         .with_scalar("is_retired", ScalarValue::Bool(false));
@@ -294,6 +301,10 @@ async fn retire_endpoint(
             "encrypted_config",
             required_content_hash(&latest, "encrypted_config")?,
         )
+        .with_content(
+            "implementation",
+            required_content_hash(&latest, "implementation")?,
+        )
         .with_entity("tenant", tenant_ref)
         .with_scalar(
             "key_version",
@@ -319,6 +330,7 @@ async fn retire_endpoint(
 #[derive(Deserialize)]
 struct CreateEndpointRequest {
     display_name: String,
+    implementation: String,
     config: JsonValue,
 }
 
@@ -337,6 +349,7 @@ struct RotateEndpointRequest {
 struct EndpointMetadataResponse {
     endpoint_id: Uuid,
     display_name: String,
+    implementation: String,
     latest_revision: u64,
     created_at: UnixMillis,
     updated_at: UnixMillis,
@@ -557,6 +570,7 @@ async fn endpoint_metadata_response(
     Ok(EndpointMetadataResponse {
         endpoint_id: row.identity.public,
         display_name: display_name(store, latest).await?,
+        implementation: implementation_name(store, latest).await?,
         latest_revision: latest.revision_seq,
         created_at: row.created_at,
         updated_at: latest.created_at,
@@ -570,6 +584,18 @@ async fn display_name(store: &ApiStoreHandle, revision: &RevisionRow) -> Result<
         JsonValue::String(value) => Ok(value),
         _ => Err(ApiError::Internal(
             "invalid stored endpoint display name".to_string(),
+        )),
+    }
+}
+
+async fn implementation_name(
+    store: &ApiStoreHandle,
+    revision: &RevisionRow,
+) -> Result<String, ApiError> {
+    match load_json(store, required_content_hash(revision, "implementation")?).await? {
+        JsonValue::String(value) => Ok(value),
+        _ => Err(ApiError::Internal(
+            "invalid stored endpoint implementation name".to_string(),
         )),
     }
 }
