@@ -136,6 +136,7 @@ pub struct PhilharmonicApiBuilder {
     sck: Option<Arc<Sck>>,
     key_version: i64,
     rate_limit_config: RateLimitConfig,
+    brand_name: Option<Arc<str>>,
     extra_routes: Option<Router>,
 }
 
@@ -212,6 +213,12 @@ impl PhilharmonicApiBuilder {
     /// families are implemented.
     pub fn extra_routes(mut self, router: Router) -> Self {
         self.extra_routes = Some(router);
+        self
+    }
+
+    /// Set the WebUI brand name displayed in the UI chrome.
+    pub fn brand_name(mut self, name: impl Into<Arc<str>>) -> Self {
+        self.brand_name = Some(name.into());
         self
     }
 
@@ -299,6 +306,9 @@ impl PhilharmonicApiBuilder {
             .layer(axum::Extension(principal_state))
             .layer(axum::Extension(endpoint_state))
             .layer(axum::Extension(workflow_state))
+            .layer(axum::Extension(routes::meta::BrandingState {
+                name: self.brand_name.unwrap_or_else(|| Arc::from("Philharmonic")),
+            }))
             .layer(axum::middleware::from_fn(middleware::auth::authenticate))
             .layer(axum::Extension(auth_state))
             .layer(axum::middleware::from_fn_with_state(
