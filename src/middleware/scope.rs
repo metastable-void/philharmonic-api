@@ -1,8 +1,9 @@
 //! Request-scope resolution middleware.
 //!
-//! Sub-phase A invokes the deployment-supplied resolver and attaches the
-//! resolved [`crate::RequestContext`]. Sub-phase C later enforces scope
-//! compatibility with endpoint authorization requirements.
+//! Invokes the deployment-supplied resolver and attaches the resolved
+//! [`crate::RequestContext`]. Paths under `/v1/_meta/` bypass the
+//! resolver and receive [`crate::RequestScope::Operator`] directly
+//! (meta endpoints are public and require no scope).
 
 use std::{sync::Arc, time::Instant};
 
