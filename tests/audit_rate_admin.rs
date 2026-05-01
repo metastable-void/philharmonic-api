@@ -344,7 +344,8 @@ async fn audit_list_is_paginated() {
     assert_eq!(body["items"].as_array().unwrap().len(), 1);
     assert_eq!(
         body["items"][0]["audit_event_id"],
-        first.public().as_uuid().to_string()
+        second.public().as_uuid().to_string(),
+        "first page should return the newer item"
     );
     let cursor = body["next_cursor"].as_str().unwrap();
 
@@ -365,7 +366,8 @@ async fn audit_list_is_paginated() {
     assert_eq!(body["items"].as_array().unwrap().len(), 1);
     assert_eq!(
         body["items"][0]["audit_event_id"],
-        second.public().as_uuid().to_string()
+        first.public().as_uuid().to_string(),
+        "second page should return the older item"
     );
     assert!(body["next_cursor"].is_null());
 }

@@ -1087,9 +1087,11 @@ fn paginate_items<T>(
     params: &PaginationParams,
 ) -> Result<PaginatedResponse<T>, ApiError> {
     let cursor = decode_cursor(params.cursor.as_deref()).map_err(pagination_error)?;
-    items.sort_by_key(|(key, _)| (key.created_at, key.id.as_u128()));
+    items.sort_by(|(a, _), (b, _)| {
+        (b.created_at, b.id.as_u128()).cmp(&(a.created_at, a.id.as_u128()))
+    });
     if let Some(cursor) = cursor {
-        items.retain(|(key, _)| cursor_after(*key, cursor));
+        items.retain(|(key, _)| cursor_before(*key, cursor));
     }
 
     let limit = page_size(params.limit).map_err(pagination_error)?;
@@ -1113,8 +1115,8 @@ fn paginate_items<T>(
     })
 }
 
-fn cursor_after(key: CursorKey, cursor: CursorKey) -> bool {
-    (key.created_at, key.id.as_u128()) > (cursor.created_at, cursor.id.as_u128())
+fn cursor_before(key: CursorKey, cursor: CursorKey) -> bool {
+    (key.created_at, key.id.as_u128()) < (cursor.created_at, cursor.id.as_u128())
 }
 
 fn dedupe_rows(rows: &mut Vec<philharmonic_store::EntityRow>) {
