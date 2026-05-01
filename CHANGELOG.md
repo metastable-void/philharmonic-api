@@ -9,6 +9,12 @@ this crate adheres to
 
 ## [Unreleased]
 
+## [0.1.3]
+
+- Added `/v1/whoami` endpoint.
+- Added `/v1/_meta/branding` endpoint with `BrandingState`.
+- Added `pub mod whoami` route module.
+
 ## [0.1.2]
 
 ## [0.1.0]
